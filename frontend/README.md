@@ -14,6 +14,18 @@ npm run build && npm start
 npm run lint
 ```
 
+## Test
+
+```bash
+npm test                 # Vitest: unit tests for lib/ and component tests (jsdom)
+npx playwright install chromium   # once
+npm run test:e2e         # Playwright: builds and serves the app, runs against real Chromium
+```
+
+Set `PLAYWRIGHT_CHANNEL=chrome` (or `msedge`) to use an installed browser instead of downloading one.
+
+Tests marked `it.fails` (Vitest) or `test.fail()` (Playwright) document known, reproducible defects; they pass while the defect exists and go red once it is fixed, at which point the marker should be removed.
+
 ## How it works
 
 - The agreement text is **not** duplicated here. `lib/templates.ts` reads `../templates/Mutual-NDA-coverpage.md` and `../templates/Mutual-NDA.md` on the server at build time, so the app must be built/run from a checkout of the whole repository.
