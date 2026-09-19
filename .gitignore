@@ -1,0 +1,124 @@
+# ---------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+*.code-workspace
+
+# ---------------------------------------------------------------
+# Environment / secrets
+# ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------------------------------------------------------------
+# Python / FastAPI
+# ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Testing / coverage / type checking / linting
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.ruff_cache/
+
+# Local databases / uploads / logs
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/
+uploads/
+
+# Alembic / tooling caches
+.ipynb_checkpoints/
+.pdm-python
+.pdm-build/
+
+# ---------------------------------------------------------------
+# Node / Next.js
+# ---------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Next.js build output
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Misc build / cache
+.turbo/
+.vercel
+.cache/
+.eslintcache
+.parcel-cache/
+coverage/
+
+# ---------------------------------------------------------------
+# WeChat Mini Program (weapp)
+# ---------------------------------------------------------------
+# Machine-specific DevTools settings
+project.private.config.json
+# Built npm packages (regenerate via DevTools "Build npm")
+miniprogram_npm/
+# Build output / preview artifacts
+dist-weapp/
+.tmp/
+.swc
