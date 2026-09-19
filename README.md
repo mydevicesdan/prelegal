@@ -17,3 +17,4 @@ Prelegal is a work in progress. Details on features, setup, and usage will be ad
 ## License
 
 See [LICENSE](LICENSE).
+*
