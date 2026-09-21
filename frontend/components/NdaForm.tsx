@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { NdaFormData, Party } from "@/lib/nda";
 
 const inputClass =
-  "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:bg-gray-100 disabled:text-gray-400";
+  "w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/40 disabled:bg-gray-100 disabled:text-gray-400";
 
 function Field({
   id,
@@ -29,7 +29,7 @@ function Field({
 function Fieldset({ legend, children }: { legend: string; children: ReactNode }) {
   return (
     <fieldset className="space-y-4 rounded-lg border border-gray-200 bg-white p-4">
-      <legend className="px-1 text-sm font-semibold text-gray-900">{legend}</legend>
+      <legend className="px-1 text-sm font-semibold text-brand-navy">{legend}</legend>
       {children}
     </fieldset>
   );
@@ -53,7 +53,7 @@ function RadioOption({
         name={name}
         checked={checked}
         onChange={onSelect}
-        className="h-4 w-4 accent-indigo-600"
+        className="h-4 w-4 accent-brand-blue"
       />
       {children}
     </label>
