@@ -1,12 +1,9 @@
-import { NdaCreator } from "@/components/NdaCreator";
-import { loadMutualNdaTemplates } from "@/lib/templates";
+import { LoginForm } from "@/components/LoginForm";
 
-export default async function Home() {
-  const templates = await loadMutualNdaTemplates();
-
+export default function Home() {
   return (
-    <main className="flex-1">
-      <NdaCreator templates={templates} />
+    <main className="flex flex-1 flex-col">
+      <LoginForm />
     </main>
   );
 }

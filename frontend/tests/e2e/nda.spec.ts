@@ -13,6 +13,12 @@ const localToday = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+/** Starts a session (as the fake login would) and opens the NDA creator directly. */
+async function openNda(page: Page) {
+  await page.addInitScript(() => sessionStorage.setItem("prelegal.session", "tester@example.com"));
+  await page.goto("/nda/");
+}
+
 /** Collects console errors/warnings and page errors so tests can assert a clean page. */
 function watchConsole(page: Page) {
   const problems: string[] = [];
@@ -57,28 +63,24 @@ const horizontalOverflow = (page: Page) =>
 test.describe("page load", () => {
   test("renders cleanly with no console errors or hydration warnings", async ({ page }) => {
     const problems = watchConsole(page);
-    await page.goto("/");
+    await openNda(page);
     await expect(page).toHaveTitle("Prelegal - Mutual NDA creator");
     await expect(page.getByRole("heading", { level: 1, name: "Mutual NDA creator" })).toBeVisible();
     await expect(doc(page).getByRole("heading", { name: "Standard Terms" })).toBeVisible();
     expect(problems).toEqual([]);
   });
 
-  test("defaults the effective date to today on the client, not baked into the static HTML", async ({ page, request }) => {
-    const html = (await (await request.get("/")).text()).replace(/<!--.*?-->/g, "");
-    expect(html).toContain("Standard Terms"); // templates are rendered at build time
-    expect(html).toContain("[Effective Date]"); // server snapshot has no date
-
-    await page.goto("/");
+  test("defaults the effective date to today on the client, not baked into the static HTML", async ({ page }) => {
+    await openNda(page);
     await expect(page.getByLabel("Effective date")).toHaveValue(localToday());
     await expect(section(page, "Effective Date")).not.toContainText("[Effective Date]");
   });
 
-  test("statically prerenders the full agreement text without JavaScript", async ({ browser }) => {
+  test("renders no agreement without JavaScript, because the page is behind the login gate", async ({ browser }) => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
-    await page.goto("/");
-    await expect(doc(page).getByRole("listitem")).toHaveCount(11);
+    await page.goto("/nda/");
+    await expect(page.getByRole("article")).toHaveCount(0);
     await context.close();
   });
 
@@ -87,7 +89,7 @@ test.describe("page load", () => {
     page.on("request", (r) => {
       if (!r.url().startsWith("http://localhost")) external.push(r.url());
     });
-    await page.goto("/");
+    await openNda(page);
     await page.waitForLoadState("networkidle");
     expect(external).toEqual([]);
   });
@@ -95,7 +97,7 @@ test.describe("page load", () => {
 
 test.describe("form -> agreement", () => {
   test("fills every field into the cover page, terms and signature table", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     await fillEverything(page);
 
     await expect(section(page, "Purpose")).toContainText("Exploring a joint venture.");
@@ -113,7 +115,7 @@ test.describe("form -> agreement", () => {
   });
 
   test("toggles term options and years, and leaves the other option unchecked", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     const term = page.getByRole("group", { name: "MNDA term" });
     await term.getByLabel("Number of years").fill("3");
     await expect(section(page, "MNDA Term")).toContainText(/☒\s*Expires 3 year\(s\) from Effective Date/);
@@ -130,7 +132,7 @@ test.describe("form -> agreement", () => {
   });
 
   test("updates the agreement on every keystroke", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     await page.getByLabel("Governing law (state)").pressSequentially("Texas");
     await expect(doc(page)).toContainText("State of Texas,");
     await page.getByLabel("Governing law (state)").press("Backspace");
@@ -138,17 +140,17 @@ test.describe("form -> agreement", () => {
   });
 
   test("pressing Enter in a field does not submit or reload the form", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     await page.getByLabel("Governing law (state)").fill("Ohio");
     await page.getByLabel("Governing law (state)").press("Enter");
-    await expect(page).toHaveURL(/localhost:3100\/$/);
+    await expect(page).toHaveURL(/localhost:3100\/nda\/$/);
     await expect(page.getByLabel("Governing law (state)")).toHaveValue("Ohio");
   });
 
   test("handles very long values without breaking the layout", async ({ page }) => {
     // Known defect (found by this test): unbroken strings overflow the page. Remove test.fail() once fixed.
     test.fail();
-    await page.goto("/");
+    await openNda(page);
     const long = "Supercalifragilistic".repeat(40);
     await party(page, "Party 1").getByLabel("Company").fill(long);
     await page.getByLabel("Governing law (state)").fill(long);
@@ -156,7 +158,7 @@ test.describe("form -> agreement", () => {
   });
 
   test("stays responsive with a large amount of text", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     const start = Date.now();
     await page.getByLabel("Modifications").fill("word ".repeat(2000));
     await expect(section(page, "MNDA Modifications")).toContainText("word word");
@@ -171,7 +173,7 @@ test.describe("hostile input", () => {
       dialogs.push(d.message());
       void d.dismiss();
     });
-    await page.goto("/");
+    await openNda(page);
     const payload = '<img src=x onerror="alert(1)"><' + 'script>alert(2)</' + "script> [x](javascript:alert(3)) **b**";
     await page.getByLabel("Governing law (state)").fill(payload);
     await page.getByLabel("Jurisdiction (city or county and state)").fill(payload);
@@ -189,7 +191,7 @@ test.describe("hostile input", () => {
 
 test.describe("print / download", () => {
   test("print view shows only the agreement", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     await fillEverything(page);
     await page.emulateMedia({ media: "print" });
     await expect(doc(page)).toBeVisible();
@@ -204,7 +206,7 @@ test.describe("print / download", () => {
 
   test("the Download button prints with a descriptive page title, then restores it", async ({ page }) => {
     await spyOnPrint(page);
-    await page.goto("/");
+    await openNda(page);
     await party(page, "Party 1").getByLabel("Company").fill("Acme Corp");
     await party(page, "Party 2").getByLabel("Company").fill("Globex");
     await page.getByRole("button", { name: "Download PDF" }).click();
@@ -215,7 +217,7 @@ test.describe("print / download", () => {
   });
 
   test("produces a real multi-page PDF", async ({ page }, testInfo) => {
-    await page.goto("/");
+    await openNda(page);
     await fillEverything(page);
     const pdf = await page.pdf({ format: "A4", printBackground: true });
     await testInfo.attach("mutual-nda.pdf", { body: pdf, contentType: "application/pdf" });
@@ -231,7 +233,7 @@ test.describe("responsive layout", () => {
   test("phone width: single column, no horizontal scroll, form above the agreement", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 2, hasTouch: true });
     const page = await context.newPage();
-    await page.goto("/");
+    await openNda(page);
     await fillEverything(page);
 
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
@@ -244,7 +246,7 @@ test.describe("responsive layout", () => {
 
   test("desktop width: form and agreement sit side by side", async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
-    await page.goto("/");
+    await openNda(page);
     const formBox = await page.getByLabel("Purpose").boundingBox();
     const docBox = await doc(page).boundingBox();
     expect(docBox!.x).toBeGreaterThan(formBox!.x + formBox!.width);
@@ -253,7 +255,7 @@ test.describe("responsive layout", () => {
   test("the signature table fits on a very narrow phone", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 320, height: 640 } });
     const page = await context.newPage();
-    await page.goto("/");
+    await openNda(page);
     const table = await doc(page).getByRole("table").boundingBox();
     expect(table!.x + table!.width).toBeLessThanOrEqual(320);
     await context.close();
@@ -263,7 +265,7 @@ test.describe("responsive layout", () => {
 test.describe("keyboard", () => {
   test("the Download button works with Enter and Space", async ({ page }) => {
     await spyOnPrint(page);
-    await page.goto("/");
+    await openNda(page);
     await page.getByRole("button", { name: "Download PDF" }).focus();
     await page.keyboard.press("Enter");
     await page.keyboard.press("Space");
@@ -271,7 +273,7 @@ test.describe("keyboard", () => {
   });
 
   test("tabbing visits the form controls in reading order", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     const labels: string[] = [];
     await page.getByRole("button", { name: "Download PDF" }).focus();
     for (let i = 0; i < 26; i++) {
@@ -291,7 +293,7 @@ test.describe("keyboard", () => {
   });
 
   test("radio groups change with the arrow keys", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     const term = page.getByRole("group", { name: "MNDA term" });
     await term.getByRole("radio", { name: "Expires after" }).focus();
     await page.keyboard.press("ArrowDown");
@@ -309,12 +311,12 @@ test.describe("accessibility (axe, WCAG 2.0/2.1 A + AA)", () => {
   test("initial page has no violations", async ({ page }) => {
     // Known defect (review + axe): gray-400 placeholder text fails colour contrast. Remove test.fail() once fixed.
     test.fail();
-    await page.goto("/");
+    await openNda(page);
     expect(summarize(await run(page))).toEqual([]);
   });
 
   test("filled-in page has no violations", async ({ page }) => {
-    await page.goto("/");
+    await openNda(page);
     await fillEverything(page);
     expect(summarize(await run(page))).toEqual([]);
   });
@@ -324,7 +326,7 @@ test.describe("date input (real browser)", () => {
   test("a year with more than four digits does not blank out the effective date", async ({ page }) => {
     // Known defect (review): formatDate only accepts 4-digit years. Remove test.fail() once fixed.
     test.fail();
-    await page.goto("/");
+    await openNda(page);
     const date = page.getByLabel("Effective date");
     await date.evaluate((el: HTMLInputElement) => {
       // Chrome's date field allows years up to 275760; set it the way a user typing a 5th digit would.

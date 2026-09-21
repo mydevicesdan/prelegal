@@ -49,7 +49,7 @@ export function NdaCreator({ templates }: { templates: MutualNdaTemplates }) {
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mutual NDA creator</h1>
+          <h1 className="text-2xl font-bold text-brand-navy">Mutual NDA creator</h1>
           <p className="mt-1 text-sm text-gray-600">
             Fill in the details and the agreement updates as you type. When it
             looks right, download it as a PDF.
@@ -58,7 +58,7 @@ export function NdaCreator({ templates }: { templates: MutualNdaTemplates }) {
         <button
           type="button"
           onClick={download}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          className="rounded-md bg-brand-purple px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-purple/90 focus:outline-none focus:ring-2 focus:ring-brand-blue"
         >
           Download PDF
         </button>
