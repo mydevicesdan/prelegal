@@ -2,17 +2,23 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPanel, GREETING } from "@/components/ChatPanel";
-import { initialFormState, type NdaFormData } from "@/lib/nda";
-import { chatReply, mockChatApi, requestBody } from "./chatFixtures";
+import type { ChatContext } from "@/lib/chat";
+import { initialFormState } from "@/lib/nda";
+import { chatReply, mockChatApi, ndaReply, requestBody } from "./chatFixtures";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const data: NdaFormData = { ...initialFormState, effectiveDate: "2026-09-20" };
+const context: ChatContext = {
+  data: { ...initialFormState, effectiveDate: "2026-09-20" },
+  documentType: "csa",
+  values: { "governing-law": "Delaware" },
+  parties: { Provider: { company: "Acme", name: "", title: "", address: "" } },
+};
 
-const setup = (onUpdates = vi.fn()) => {
+const setup = (onTurn = vi.fn()) => {
   const user = userEvent.setup();
-  render(<ChatPanel data={data} onUpdates={onUpdates} />);
-  return { user, onUpdates, input: screen.getByLabelText("Message") };
+  render(<ChatPanel context={context} onTurn={onTurn} />);
+  return { user, onTurn, input: screen.getByLabelText("Message") };
 };
 
 const sendButton = () => screen.getByRole("button", { name: "Send" });
@@ -27,8 +33,8 @@ describe("ChatPanel", () => {
   });
 
   it("sends the message with the history and shows the reply, then passes the updates on", async () => {
-    const fetchMock = mockChatApi(chatReply("Got it. Which state's law?", { governingLaw: "Ohio" }));
-    const { user, input, onUpdates } = setup();
+    const fetchMock = mockChatApi(ndaReply("Got it. Which state's law?", { governingLaw: "Ohio" }));
+    const { user, input, onTurn } = setup();
 
     await user.type(input, "Acme and Globex");
     await user.click(sendButton());
@@ -40,8 +46,8 @@ describe("ChatPanel", () => {
       { role: "assistant", content: GREETING },
       { role: "user", content: "Acme and Globex" },
     ]);
-    expect(onUpdates).toHaveBeenCalledOnce();
-    expect(onUpdates.mock.calls[0][0].governingLaw).toBe("Ohio");
+    expect(onTurn).toHaveBeenCalledOnce();
+    expect(onTurn.mock.calls[0][0].updates.governingLaw).toBe("Ohio");
   });
 
   it("keeps the conversation going across turns", async () => {
@@ -69,7 +75,34 @@ describe("ChatPanel", () => {
     await user.type(input, "hi");
     await user.click(sendButton());
     await screen.findByText("ok");
-    expect(requestBody(fetchMock).fields.effectiveDate).toBe("2026-09-20");
+    const body = requestBody(fetchMock);
+    expect(body.fields.effectiveDate).toBe("2026-09-20");
+    expect(body.documentType).toBe("csa");
+    expect(body.values).toEqual([{ key: "governing-law", value: "Delaware" }]);
+    expect(body.parties[0]).toMatchObject({ role: "Provider", company: "Acme" });
+  });
+
+  it("passes the whole turn on, including the chosen document and the generic fields", async () => {
+    mockChatApi(
+      chatReply("A CSA.", {
+        documentType: "csa",
+        fieldValues: [{ key: "governing-law", value: "Ohio" }],
+        parties: [{ role: "Provider", company: "Acme", name: null, title: null, address: null }],
+      }),
+    );
+    const { user, input, onTurn } = setup();
+    await user.type(input, "hi");
+    await user.click(sendButton());
+    await screen.findByText("A CSA.");
+    expect(onTurn.mock.calls[0][0]).toMatchObject({
+      documentType: "csa",
+      fieldValues: [{ key: "governing-law", value: "Ohio" }],
+    });
+  });
+
+  it("opens by offering the documents it can draft", () => {
+    setup();
+    expect(screen.getByRole("log")).toHaveTextContent("What do you need?");
   });
 
   it("sends on Enter but not on Shift+Enter", async () => {
@@ -126,21 +159,21 @@ describe("ChatPanel", () => {
   it("shows the error, keeps the user's message, does not apply updates, and retries", async () => {
     const fetchMock = mockChatApi(
       { status: 502, body: { detail: "The AI assistant could not respond. Please try again." } },
-      chatReply("Back again", { governingLaw: "Ohio" }),
+      ndaReply("Back again", { governingLaw: "Ohio" }),
     );
-    const { user, input, onUpdates } = setup();
+    const { user, input, onTurn } = setup();
 
     await user.type(input, "hello");
     await user.click(sendButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The AI assistant could not respond.");
     expect(screen.getByRole("log")).toHaveTextContent("hello");
-    expect(onUpdates).not.toHaveBeenCalled();
+    expect(onTurn).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Back again")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
-    expect(onUpdates).toHaveBeenCalledOnce();
+    expect(onTurn).toHaveBeenCalledOnce();
     // The retry re-sent the same history rather than duplicating the user's message.
     expect(requestBody(fetchMock, 1).messages).toEqual(requestBody(fetchMock, 0).messages);
   });

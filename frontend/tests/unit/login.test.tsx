@@ -15,7 +15,7 @@ beforeEach(() => {
 });
 
 describe("LoginForm", () => {
-  it("signs in with any details and opens the NDA creator", async () => {
+  it("signs in with any details and opens the document creator", async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
     await user.type(screen.getByLabelText("Email"), " me@example.com ");
@@ -23,14 +23,14 @@ describe("LoginForm", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(readSession()).toBe("me@example.com");
-    expect(router.push).toHaveBeenCalledWith("/nda/");
+    expect(router.push).toHaveBeenCalledWith("/documents/");
   });
 
   it("accepts an empty form", async () => {
     const user = userEvent.setup();
     render(<LoginForm />);
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(router.push).toHaveBeenCalledWith("/nda/");
+    expect(router.push).toHaveBeenCalledWith("/documents/");
   });
 });
 

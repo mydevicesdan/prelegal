@@ -1,12 +1,14 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 # Bounds what one request can make us send to the (paid) model.
 MAX_TEXT_CHARS = 4000
 MAX_MESSAGES = 50
+MAX_FIELD_VALUES = 100
+MAX_PARTIES = 4
 
 
 def _strings(value):
@@ -68,16 +70,41 @@ class ChatMessage(WireModel):
     content: str = Field(max_length=MAX_TEXT_CHARS)
 
 
+class FieldValue(WireModel):
+    """A value for one field of a generic document (keys come from documents.DocumentSpec.fields)."""
+
+    key: str
+    value: str
+
+
+class PartyDetails(WireModel):
+    """Details of one party of a generic document, by role (e.g. Provider, Customer)."""
+
+    role: str
+    company: str | None
+    name: str | None = Field(description="Signatory name")
+    title: str | None
+    address: str | None = Field(description="Email or postal address for legal notices")
+
+
 class ChatRequest(WireModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=MAX_MESSAGES)
     fields: NdaFields
+    # State of the generic (non-NDA) documents: the chosen document, and everything filled in so far.
+    document_type: str | None = None
+    values: list[FieldValue] = Field(default_factory=list, max_length=MAX_FIELD_VALUES)
+    parties: list[PartyDetails] = Field(default_factory=list, max_length=MAX_PARTIES)
 
-    @field_validator("fields")
-    @classmethod
-    def _fields_not_too_long(cls, fields: NdaFields) -> NdaFields:
-        if any(len(text) > MAX_TEXT_CHARS for text in _strings(fields.model_dump())):
+    @model_validator(mode="after")
+    def _text_not_too_long(self) -> "ChatRequest":
+        texts = [
+            *_strings(self.fields.model_dump()),
+            *(v.value for v in self.values),
+            *(t for p in self.parties for t in _strings(p.model_dump())),
+        ]
+        if any(len(text) > MAX_TEXT_CHARS for text in texts):
             raise ValueError(f"field values must be at most {MAX_TEXT_CHARS} characters")
-        return fields
+        return self
 
     @field_validator("messages")
     @classmethod
@@ -88,7 +115,22 @@ class ChatRequest(WireModel):
 
 
 class AiTurn(WireModel):
-    """Structured output of one model call; also the /api/chat response body."""
+    """Structured output of one model call; also the /api/chat response body.
+
+    Exactly one of `updates` (Mutual NDA) and `field_values` + `parties` (every other document) is used,
+    depending on the active document; the others are null.
+    """
 
     reply: str = Field(description="What to say to the user next")
-    updates: NdaFields = Field(description="Only the fields changed this turn; null for everything else")
+    document_type: str | None = Field(
+        description="Key of the document the user has chosen or switched to this turn; null if unchanged"
+    )
+    updates: NdaFields | None = Field(
+        description="Mutual NDA only: the fields changed this turn, null for every other field"
+    )
+    field_values: list[FieldValue] | None = Field(
+        description="Other documents only: the fields whose value the user gave this turn"
+    )
+    parties: list[PartyDetails] | None = Field(
+        description="Other documents only: the party details the user gave this turn, null for unknown details"
+    )

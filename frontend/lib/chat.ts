@@ -1,3 +1,4 @@
+import type { FieldValues, PartiesByRole } from "@/lib/documents";
 import type { NdaFormData, NdaFormState, Party } from "@/lib/nda";
 
 export interface ChatMessage {
@@ -23,9 +24,34 @@ export interface NdaUpdates {
   party2: PartyUpdate;
 }
 
+/** A value for one field of a generic document. */
+export interface FieldValue {
+  key: string;
+  value: string;
+}
+
+/** Details of one party of a generic document, by role. null means unknown (or, in a reply, unchanged). */
+export type PartyDetails = { role: string } & PartyUpdate;
+
+/**
+ * Mirrors backend AiTurn. Which of `updates` (Mutual NDA) and `fieldValues` + `parties` (every other
+ * document) is set depends on the active document; the rest are null.
+ */
 export interface ChatReply {
   reply: string;
-  updates: NdaUpdates;
+  /** The document the user has chosen or switched to this turn; null if unchanged. */
+  documentType: string | null;
+  updates: NdaUpdates | null;
+  fieldValues: FieldValue[] | null;
+  parties: PartyDetails[] | null;
+}
+
+/** Everything the assistant needs to know about the document as it currently stands. */
+export interface ChatContext {
+  data: NdaFormData;
+  documentType: string | null;
+  values: FieldValues;
+  parties: PartiesByRole;
 }
 
 // Keep in step with the backend limits (backend/app/schemas.py).
@@ -106,14 +132,30 @@ function withinLimits(messages: ChatMessage[]): ChatMessage[] {
     .map((m) => ({ ...m, content: m.content.slice(0, MAX_TEXT_CHARS) }));
 }
 
+function valuesToWire(values: FieldValues): FieldValue[] {
+  return Object.entries(values)
+    .filter(([, value]) => value.trim() !== "")
+    .map(([key, value]) => ({ key, value }));
+}
+
+function partiesToWire(parties: PartiesByRole): PartyDetails[] {
+  return Object.entries(parties).map(([role, party]) => ({ role, ...partyToWire(party) }));
+}
+
 /** One assistant turn. Throws an Error with a user-presentable message on failure. */
-export async function sendChat(messages: ChatMessage[], data: NdaFormData): Promise<ChatReply> {
+export async function sendChat(messages: ChatMessage[], context: ChatContext): Promise<ChatReply> {
   let response: Response;
   try {
     response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: withinLimits(messages), fields: toWireFields(data) }),
+      body: JSON.stringify({
+        messages: withinLimits(messages),
+        fields: toWireFields(context.data),
+        documentType: context.documentType,
+        values: valuesToWire(context.values),
+        parties: partiesToWire(context.parties),
+      }),
     });
   } catch {
     throw new Error("Could not reach the server. Check your connection and try again.");

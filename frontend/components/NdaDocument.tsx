@@ -6,29 +6,8 @@ import {
   type NdaFormData,
 } from "@/lib/nda";
 import type { MutualNdaTemplates } from "@/lib/templates";
+import { Placeholder, Section, SignatureTable } from "./documentParts";
 import { Markdown } from "./Markdown";
-
-function Placeholder({ children }: { children: string }) {
-  return <span className="italic text-gray-400">[{children}]</span>;
-}
-
-function Section({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="mb-5 break-inside-avoid">
-      <h3 className="text-base font-bold">{title}</h3>
-      {hint && <p className="text-xs italic text-gray-500">{hint}</p>}
-      <div className="mt-1 space-y-1">{children}</div>
-    </section>
-  );
-}
 
 function Choice({ checked, children }: { checked: boolean; children: ReactNode }) {
   return (
@@ -40,24 +19,6 @@ function Choice({ checked, children }: { checked: boolean; children: ReactNode }
     </p>
   );
 }
-
-const SIGNATURE_ROWS: {
-  label: string;
-  hint?: string;
-  value?: (party: NdaFormData["party1"]) => string;
-  tall?: boolean;
-}[] = [
-  { label: "Signature", tall: true },
-  { label: "Print Name", value: (p) => p.name },
-  { label: "Title", value: (p) => p.title },
-  { label: "Company", value: (p) => p.company },
-  {
-    label: "Notice Address",
-    hint: "Use either email or postal address",
-    value: (p) => p.address,
-  },
-  { label: "Date" },
-];
 
 export function NdaDocument({
   data,
@@ -131,40 +92,12 @@ export function NdaDocument({
 
       <p className="mb-3 mt-6 break-after-avoid">{templates.signingStatement}</p>
 
-      <table className="mb-6 w-full break-inside-avoid border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="w-1/4 border border-gray-400 p-2" />
-            <th className="border border-gray-400 p-2">PARTY 1</th>
-            <th className="border border-gray-400 p-2">PARTY 2</th>
-          </tr>
-        </thead>
-        <tbody>
-          {SIGNATURE_ROWS.map(({ label, hint, value, tall }) => (
-            <tr key={label}>
-              <th
-                scope="row"
-                className="border border-gray-400 p-2 text-left align-top font-semibold"
-              >
-                {label}
-                {hint && (
-                  <span className="block text-xs font-normal italic text-gray-500">
-                    {hint}
-                  </span>
-                )}
-              </th>
-              {[data.party1, data.party2].map((party, i) => (
-                <td
-                  key={i}
-                  className={`whitespace-pre-wrap border border-gray-400 p-2 align-top ${tall ? "h-16" : ""}`}
-                >
-                  {value?.(party)}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <SignatureTable
+        parties={[
+          { heading: "PARTY 1", party: data.party1 },
+          { heading: "PARTY 2", party: data.party2 },
+        ]}
+      />
 
       <div className="text-xs text-gray-600">
         <Markdown>{templates.coverAttribution}</Markdown>

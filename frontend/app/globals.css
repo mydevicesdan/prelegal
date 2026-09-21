@@ -36,3 +36,30 @@ body {
     background: #fff;
   }
 }
+
+/* Standard terms of the generated documents: nested clauses are numbered 1, 1.1, 1.2 ... so that the
+   cross-references in the text ("Section 7.4") match what is on the page. */
+.legal-numbering ol {
+  list-style: none;
+  counter-reset: clause;
+  padding-left: 0;
+}
+
+.legal-numbering ol ol {
+  margin-top: 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.legal-numbering li {
+  counter-increment: clause;
+}
+
+.legal-numbering li::before {
+  content: counters(clause, ".") ". ";
+  font-weight: 600;
+}
+
+/* A clause whose text is wrapped in a paragraph (because it has sub-clauses) keeps its number on the same line. */
+.legal-numbering li > p:first-child {
+  display: inline;
+}

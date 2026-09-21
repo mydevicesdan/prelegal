@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyUpdates, sendChat, toWireFields } from "@/lib/chat";
+import { applyUpdates, sendChat, toWireFields, type ChatContext } from "@/lib/chat";
 import { initialFormState, type NdaFormData, type NdaFormState } from "@/lib/nda";
-import { chatReply, mockChatApi, noParty, noUpdates, requestBody } from "./chatFixtures";
+import { chatReply, mockChatApi, ndaReply, noParty, noUpdates, requestBody } from "./chatFixtures";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -114,16 +114,46 @@ describe("toWireFields", () => {
 describe("sendChat", () => {
   const messages = [{ role: "user" as const, content: "Hi" }];
   const data: NdaFormData = { ...initialFormState, effectiveDate: "2026-09-20" };
+  const context: ChatContext = { data, documentType: null, values: {}, parties: {} };
 
-  it("posts the conversation and current fields to /api/chat and returns the reply", async () => {
-    const fetchMock = mockChatApi(chatReply("Hello!", { governingLaw: "Ohio" }));
-    const result = await sendChat(messages, data);
+  it("posts the conversation and the current state to /api/chat and returns the reply", async () => {
+    const fetchMock = mockChatApi(ndaReply("Hello!", { governingLaw: "Ohio" }));
+    const result = await sendChat(messages, context);
 
     expect(result.reply).toBe("Hello!");
-    expect(result.updates.governingLaw).toBe("Ohio");
+    expect(result.documentType).toBe("mutual-nda");
+    expect(result.updates?.governingLaw).toBe("Ohio");
     expect(fetchMock.mock.calls[0][0]).toBe("/api/chat");
-    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
-    expect(requestBody(fetchMock)).toEqual({ messages, fields: toWireFields(data) });
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe("POST");
+    expect(requestBody(fetchMock)).toEqual({
+      messages,
+      fields: toWireFields(data),
+      documentType: null,
+      values: [],
+      parties: [],
+    });
+  });
+
+  it("sends the chosen document, the filled-in values and the party details", async () => {
+    const fetchMock = mockChatApi(chatReply("ok"));
+    await sendChat(messages, {
+      data,
+      documentType: "csa",
+      values: { "governing-law": "Delaware", "chosen-courts": "  ", "order-date": "" },
+      parties: {
+        Provider: { company: "Acme", name: "Jane", title: "", address: "  " },
+        Customer: { company: "", name: "", title: "", address: "" },
+      },
+    });
+
+    expect(requestBody(fetchMock)).toMatchObject({
+      documentType: "csa",
+      values: [{ key: "governing-law", value: "Delaware" }],
+      parties: [
+        { role: "Provider", company: "Acme", name: "Jane", title: null, address: null },
+        { role: "Customer", company: null, name: null, title: null, address: null },
+      ],
+    });
   });
 
   it("sends only the most recent 50 messages, each within 4000 characters", async () => {
@@ -132,7 +162,7 @@ describe("sendChat", () => {
       role: i % 2 === 0 ? ("assistant" as const) : ("user" as const),
       content: i === 59 ? "y".repeat(5000) : `message ${i}`,
     }));
-    await sendChat(history, data);
+    await sendChat(history, context);
 
     const sent = requestBody(fetchMock).messages;
     expect(sent).toHaveLength(50);
@@ -143,26 +173,26 @@ describe("sendChat", () => {
 
   it("explains a rejected message instead of showing a generic error", async () => {
     mockChatApi({ status: 422, body: { detail: [{ msg: "too long" }] } });
-    await expect(sendChat(messages, data)).rejects.toThrow("Please shorten it");
+    await expect(sendChat(messages, context)).rejects.toThrow("Please shorten it");
   });
 
   it("surfaces the server's error message", async () => {
     mockChatApi({ status: 503, body: { detail: "The AI assistant is not configured." } });
-    await expect(sendChat(messages, data)).rejects.toThrow("The AI assistant is not configured.");
+    await expect(sendChat(messages, context)).rejects.toThrow("The AI assistant is not configured.");
   });
 
   it("uses a generic message when the error has no usable detail", async () => {
     mockChatApi({ status: 500, body: { detail: [{ msg: "bad" }] } });
-    await expect(sendChat(messages, data)).rejects.toThrow("Something went wrong. Please try again.");
+    await expect(sendChat(messages, context)).rejects.toThrow("Something went wrong. Please try again.");
   });
 
   it("uses a generic message when the error body is not JSON", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>oops</html>", { status: 500 })));
-    await expect(sendChat(messages, data)).rejects.toThrow("Something went wrong. Please try again.");
+    await expect(sendChat(messages, context)).rejects.toThrow("Something went wrong. Please try again.");
   });
 
   it("reports network failures", async () => {
     mockChatApi(new TypeError("Failed to fetch"));
-    await expect(sendChat(messages, data)).rejects.toThrow("Could not reach the server");
+    await expect(sendChat(messages, context)).rejects.toThrow("Could not reach the server");
   });
 });
