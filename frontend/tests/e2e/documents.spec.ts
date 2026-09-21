@@ -301,6 +301,10 @@ test.describe("other documents", () => {
     );
     expect(styles.filter((s) => s === "none")).toHaveLength(3); // the top-level list and one per clause
     expect(styles.filter((s) => s.startsWith("clause 1|") && s.includes("counters(clause"))).toHaveLength(5);
+    // Sub-clauses ("a. in every case;") are their own paragraphs, set in from the clause text.
+    const sub = terms.getByText(/^a\. in every case;$/);
+    await expect(sub).toBeVisible();
+    expect(await sub.evaluate((el) => getComputedStyle(el).marginLeft)).toBe("24px");
     await expect(doc(page).getByRole("link", { name: "CC BY 4.0" })).toBeVisible();
   });
 

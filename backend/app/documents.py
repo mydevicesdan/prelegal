@@ -30,10 +30,16 @@ _FIELD_SPAN = re.compile(r'<span class="(coverpage|keyterms|orderform|sow|busine
 _HEADER_SPAN = re.compile(r'<span class="header_[23]"(?: id="[^"]*")?>([^<]*)</span>')
 _ANY_SPAN_TAG = re.compile(r"</?span[^>]*>")
 _LIST_NUMBER = re.compile(r"^\s*\d+\.\s+")
+# "a. ..." and "ii. ..." lines: Markdown has no letter or roman list markers, so these are
+# sub-clauses of a numbered item.
+_SUBCLAUSE = re.compile(r"^\s+(?:[a-z]|[ivx]{2,4})\.\s")
 _SENTENCE_BREAK = re.compile(r'(?<!U\.S\.)(?<!e\.g\.)(?<!i\.e\.)(?<=[.;])\s+(?=[A-Z(“"])')
 _POSSESSIVE = re.compile(r"[’']s$")
-_TOKEN = "{}"
-_TOKEN_RE = re.compile("(\\d+)")
+# Field references are swapped for a numbered placeholder while a sentence is extracted, then put back.
+# The delimiters are private-use characters, which cannot occur in a template.
+_OPEN, _CLOSE = "\ue000", "\ue001"
+_TOKEN = _OPEN + "{}" + _CLOSE
+_TOKEN_RE = re.compile(_OPEN + r"(\d+)" + _CLOSE)
 _CONTEXT_MAX_CHARS = 300
 
 
@@ -182,8 +188,27 @@ def parse_template(entry: CatalogEntry, markdown: str) -> DocumentSpec:
         if labels[key] not in PARTY_ROLES
     )
 
-    body = "\n".join(_render_line(line) for line in lines).strip()
+    body = _render_body(lines)
     return DocumentSpec(entry.key, entry.name, entry.description, parties, fields, body)
+
+
+def _render_body(lines: list[str]) -> str:
+    """The terms as markdown. Lettered and roman sub-clauses would otherwise run together into one
+    paragraph (they are not list markers) or, when indented 4+ columns past their parent, become a code
+    block. Each becomes its own paragraph, indented to exactly its parent item's content column."""
+    out: list[str] = []
+    content_column = 0
+    for line in lines:
+        rendered = _render_line(line)
+        marker = _LIST_NUMBER.match(rendered)
+        if marker:
+            content_column = marker.end()
+        elif _SUBCLAUSE.match(rendered):
+            if out and out[-1].strip():
+                out.append("")
+            rendered = " " * content_column + rendered.lstrip()
+        out.append(rendered)
+    return "\n".join(out).strip()
 
 
 def _render_line(line: str) -> str:

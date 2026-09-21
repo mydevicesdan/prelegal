@@ -104,6 +104,21 @@ describe("standard terms", () => {
     expect(within(terms).getAllByRole("list")).toHaveLength(3); // the top level and one per clause
   });
 
+  it("sets lettered sub-clauses out as their own paragraphs within their clause", () => {
+    setup();
+    const terms = within(doc()).getByRole("heading", { name: "Standard Terms" }).closest("section") as HTMLElement;
+    const a = within(terms).getByText(/^a\. in every case;$/);
+    const b = within(terms).getByText(/^b\. unless stated otherwise\.$/);
+    expect(a.tagName).toBe("P");
+    expect(b.tagName).toBe("P");
+    expect(a).not.toBe(b);
+    // They sit inside the clause they belong to (2.1), after its lead-in text.
+    const clause = a.closest("li") as HTMLElement;
+    expect(clause).toContainElement(b);
+    expect(clause).toHaveTextContent(/^Law\.\s+The Governing Law applies:\s*a\. in every case;\s*b\. unless stated otherwise\.$/);
+    expect(terms.querySelector("pre, code")).toBeNull();
+  });
+
   it("does not render raw HTML from the terms", () => {
     setup({}, {}, { ...csaSpec, terms: "1. <img src=x onerror=alert(1)> **safe**" });
     expect(doc().querySelector("img")).toBeNull();

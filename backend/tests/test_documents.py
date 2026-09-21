@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app import documents
 from app.documents import CatalogEntry, catalog, get_spec, parse_template, slugify
 
+NL = chr(10)
 GENERIC_KEYS = [e.key for e in catalog() if e.key != documents.NDA_KEY]
 
 
@@ -58,7 +59,7 @@ class TestSpecs:
     def test_every_field_has_a_readable_context_sentence(self, key):
         for f in get_spec(key).fields:
             assert f.context, f.key
-            assert "" not in f.context and "<" not in f.context and "**" not in f.context
+            assert documents._OPEN not in f.context and documents._CLOSE not in f.context and "<" not in f.context and "**" not in f.context
             assert len(f.context) <= 300
 
     @pytest.mark.parametrize("key", GENERIC_KEYS)
@@ -184,6 +185,68 @@ class TestParser:
 
     def test_slugify(self):
         assert slugify("Special Category Data Restrictions or Safeguards") == "special-category-data-restrictions-or-safeguards"
+
+
+class TestSubClauses:
+    """Lettered and roman sub-clauses ("a. ...", "ii. ...") are not Markdown list items."""
+
+    def parse(self, body: str) -> str:
+        return parse_template(entry(), "# Test Agreement" + NL + NL + body).terms
+
+    def test_each_becomes_its_own_paragraph_at_its_parents_content_column(self):
+        terms = self.parse(
+            "1. Term" + NL
+            + "    3. Termination. Either party may terminate:" + NL
+            + "        a. if X;" + NL
+            + "        b. upon Y." + NL
+            + "    4. Next." + NL
+        )
+        assert terms == (
+            "1. Term" + NL
+            + "    3. Termination. Either party may terminate:" + NL
+            + NL
+            + "       a. if X;" + NL
+            + NL
+            + "       b. upon Y." + NL
+            + "    4. Next."
+        )
+
+    def test_roman_clauses_nested_deeper_are_not_left_as_indented_code(self):
+        terms = self.parse(
+            "    2. Transfers" + NL + NL + "            i. First;" + NL + NL + "            ii. Second." + NL
+        )
+        assert terms == "2. Transfers" + NL + NL + "       i. First;" + NL + NL + "       ii. Second."
+
+    def test_the_indent_follows_the_parent_item(self):
+        terms = self.parse("1. Top" + NL + "        a. under a top-level item" + NL)
+        assert terms == "1. Top" + NL + NL + "   a. under a top-level item"
+
+    def test_ordinary_text_that_merely_starts_with_a_letter_is_left_alone(self):
+        body = "1. Top" + NL + "    e.g. an example" + NL + "    x-ray results"
+        assert self.parse(body) == body.strip()
+
+    @pytest.mark.parametrize("key", GENERIC_KEYS)
+    def test_every_template_gets_paragraphs_and_no_indented_code(self, key):
+        content_column = 0
+        lines = get_spec(key).terms.split(NL)
+        for n, line in enumerate(lines):
+            marker = documents._LIST_NUMBER.match(line)
+            indent = len(line) - len(line.lstrip())
+            if marker:
+                content_column = marker.end()
+            elif documents._SUBCLAUSE.match(line):
+                assert lines[n - 1].strip() == "", line[:60]  # its own paragraph
+                assert indent == content_column, line[:60]
+            elif line.strip():
+                # 4 or more columns past the parent's text would be an indented code block
+                assert indent - content_column < 4, line[:60]
+
+    @pytest.mark.parametrize("key", GENERIC_KEYS)
+    def test_no_legal_text_is_lost_or_reordered(self, key):
+        entry_ = documents.catalog_entry(key)
+        raw = (documents.templates_dir() / entry_.filename).read_text(encoding="utf-8").split(NL)
+        cleaned = " ".join(documents._render_line(line) for line in raw[1:]).split()
+        assert get_spec(key).terms.split() == cleaned
 
 
 class TestDocumentsApi:

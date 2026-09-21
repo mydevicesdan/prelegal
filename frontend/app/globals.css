@@ -63,3 +63,8 @@ body {
 .legal-numbering li > p:first-child {
   display: inline;
 }
+
+/* Lettered and roman sub-clauses ("a. ...") are further paragraphs of their clause: set them in. */
+.legal-numbering li > p:not(:first-child) {
+  margin-left: 1.5rem;
+}

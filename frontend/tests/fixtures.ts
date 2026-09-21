@@ -30,7 +30,7 @@ export const csaSpec: DocumentSpec = {
   ],
   terms:
     "1. **Service**\n    1. **Access.**  During the **Subscription Period**, **Customer** may use it.\n" +
-    "2. **General**\n    1. **Law.**  The **Governing Law** applies.\n    2. **Courts.**  Disputes go to the **Chosen Courts**.",
+    "2. **General**\n    1. **Law.**  The **Governing Law** applies:\n\n       a. in every case;\n\n       b. unless stated otherwise.\n    2. **Courts.**  Disputes go to the **Chosen Courts**.",
 };
 
 export const slaSpec: DocumentSpec = {
