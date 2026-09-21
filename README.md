@@ -18,12 +18,24 @@ Requires [Docker](https://www.docker.com/). The app is served at http://localhos
 | Windows | `scripts/start-windows.ps1`  | `scripts/stop-windows.ps1`  |
 
 Sign-in is a placeholder for now: any details let you in. The SQLite database is temporary and is
-recreated from scratch every time the container starts. If a `.env` file exists in the project root it is
-passed to the container (it is never copied into the image).
+recreated from scratch every time the container starts.
+
+## Configuration
+
+The AI chat calls an LLM through OpenRouter (Cerebras inference), so it needs an `OPENROUTER_API_KEY`.
+Put it in a `.env` file in the project root:
+
+```
+OPENROUTER_API_KEY=your-key-here
+```
+
+The start scripts pass `.env` to the container at run time (it is never copied into the image). Without
+the key the app still runs, but the chat answers that the assistant is not configured. The `/api/chat`
+endpoint is not authenticated yet and has no rate limit, so don't expose the app publicly.
 
 ## Project layout
 
-- `backend/`: FastAPI app managed with [uv](https://docs.astral.sh/uv/). Serves `/api/*` and the static frontend.
+- `backend/`: FastAPI app managed with [uv](https://docs.astral.sh/uv/). Serves `/api/*` (`/api/chat` is the AI assistant) and the static frontend.
   Tests: `cd backend && uv run pytest`.
 - `frontend/`: Next.js app, statically exported and served by the backend.
   Tests: `cd frontend && npm test` (unit) and `npm run test:e2e` (Playwright).

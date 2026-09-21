@@ -1,16 +1,11 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-import {
-  initialFormState,
-  todayIso,
-  type NdaFormData,
-  type NdaFormState,
-  type Party,
-} from "@/lib/nda";
+import { applyUpdates, type NdaUpdates } from "@/lib/chat";
+import { initialFormState, todayIso, type NdaFormData, type NdaFormState } from "@/lib/nda";
 import type { MutualNdaTemplates } from "@/lib/templates";
+import { ChatPanel } from "./ChatPanel";
 import { NdaDocument } from "./NdaDocument";
-import { NdaForm } from "./NdaForm";
 
 function documentTitle({ party1, party2 }: NdaFormData): string {
   const names = [party1.company, party2.company].map((c) => c.trim()).filter(Boolean);
@@ -29,11 +24,8 @@ export function NdaCreator({ templates }: { templates: MutualNdaTemplates }) {
   const today = useToday();
   const data: NdaFormData = { ...state, effectiveDate: state.effectiveDate ?? today };
 
-  const update = (patch: Partial<NdaFormData>) =>
-    setState((current) => ({ ...current, ...patch }));
-
-  const updateParty = (which: "party1" | "party2", patch: Partial<Party>) =>
-    setState((current) => ({ ...current, [which]: { ...current[which], ...patch } }));
+  const applyChatUpdates = (updates: NdaUpdates) =>
+    setState((current) => applyUpdates(current, updates));
 
   // The browser uses the page title as the default PDF file name.
   const download = () => {
@@ -51,7 +43,7 @@ export function NdaCreator({ templates }: { templates: MutualNdaTemplates }) {
         <div>
           <h1 className="text-2xl font-bold text-brand-navy">Mutual NDA creator</h1>
           <p className="mt-1 text-sm text-gray-600">
-            Fill in the details and the agreement updates as you type. When it
+            Chat with the assistant and the agreement fills in as you go. When it
             looks right, download it as a PDF.
           </p>
         </div>
@@ -66,7 +58,7 @@ export function NdaCreator({ templates }: { templates: MutualNdaTemplates }) {
 
       <div className="grid gap-8 lg:grid-cols-[24rem_minmax(0,1fr)] print:block">
         <div className="print:hidden">
-          <NdaForm data={data} onChange={update} onPartyChange={updateParty} />
+          <ChatPanel data={data} onUpdates={applyChatUpdates} />
         </div>
         <NdaDocument data={data} templates={templates} />
       </div>
