@@ -5,6 +5,8 @@ description = "Prelegal backend: FastAPI API, temporary SQLite database, and sta
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "litellm>=1.102.0",
+    "pydantic>=2.13.5",
     "uvicorn[standard]>=0.32",
 ]
 

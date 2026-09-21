@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.chat import router as chat_router
 from app.db import connect, reset_database
 
 DEFAULT_DB_PATH = Path("/tmp/prelegal.db")
@@ -29,6 +30,8 @@ def create_app(db_path: Path | None = None, static_dir: Path | None = None) -> F
         finally:
             conn.close()
         return {"status": "ok"}
+
+    app.include_router(chat_router)
 
     # Mounted last so it never shadows /api routes. The frontend is a static export.
     if static_dir.is_dir():

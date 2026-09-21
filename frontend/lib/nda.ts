@@ -7,7 +7,7 @@ export interface Party {
 
 export interface NdaFormData {
   purpose: string;
-  /** ISO date (yyyy-mm-dd), as produced by <input type="date">. */
+  /** ISO date (yyyy-mm-dd). */
   effectiveDate: string;
   termType: "expires" | "continues";
   termYears: string;
@@ -20,7 +20,7 @@ export interface NdaFormData {
   party2: Party;
 }
 
-/** Form state: `effectiveDate: null` means "not edited yet, use today's date". */
+/** Document state: `effectiveDate: null` means "not set yet, use today's date". */
 export type NdaFormState = Omit<NdaFormData, "effectiveDate"> & {
   effectiveDate: string | null;
 };
