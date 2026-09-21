@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Prelegal backend: FastAPI API, temporary SQLite database, and static frontend hosting."
 requires-python = ">=3.12"
 dependencies = [
+    "argon2-cffi>=25.1.0",
     "fastapi>=0.115",
     "litellm>=1.102.0",
     "pydantic>=2.13.5",

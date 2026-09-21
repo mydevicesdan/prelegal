@@ -6,6 +6,7 @@ from pydantic.alias_generators import to_camel
 
 # Bounds what one request can make us send to the (paid) model.
 MAX_TEXT_CHARS = 4000
+MAX_KEY_CHARS = 100  # field keys, party roles and document types
 MAX_MESSAGES = 50
 MAX_FIELD_VALUES = 100
 MAX_PARTIES = 4
@@ -27,9 +28,9 @@ class WireModel(BaseModel):
 
 class PartyFields(WireModel):
     company: str | None
-    name: str | None
+    name: str | None = Field(description="Signatory name")
     title: str | None
-    address: str | None
+    address: str | None = Field(description="Email or postal address for legal notices")
 
 
 class NdaFields(WireModel):
@@ -77,14 +78,10 @@ class FieldValue(WireModel):
     value: str
 
 
-class PartyDetails(WireModel):
+class PartyDetails(PartyFields):
     """Details of one party of a generic document, by role (e.g. Provider, Customer)."""
 
     role: str
-    company: str | None
-    name: str | None = Field(description="Signatory name")
-    title: str | None
-    address: str | None = Field(description="Email or postal address for legal notices")
 
 
 class ChatRequest(WireModel):
@@ -104,6 +101,9 @@ class ChatRequest(WireModel):
         ]
         if any(len(text) > MAX_TEXT_CHARS for text in texts):
             raise ValueError(f"field values must be at most {MAX_TEXT_CHARS} characters")
+        names = [self.document_type or "", *(v.key for v in self.values), *(p.role for p in self.parties)]
+        if any(len(name) > MAX_KEY_CHARS for name in names):
+            raise ValueError(f"document types, field keys and party roles must be at most {MAX_KEY_CHARS} characters")
         return self
 
     @field_validator("messages")

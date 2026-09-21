@@ -1,3 +1,4 @@
+import { ApiError, api } from "@/lib/api";
 import type { FieldValues, PartiesByRole } from "@/lib/documents";
 import type { NdaFormData, NdaFormState, Party } from "@/lib/nda";
 
@@ -57,6 +58,8 @@ export interface ChatContext {
 // Keep in step with the backend limits (backend/app/schemas.py).
 export const MAX_TEXT_CHARS = 4000;
 export const MAX_MESSAGES = 50;
+export const MAX_FIELD_VALUES = 100;
+export const MAX_PARTIES = 4;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -132,43 +135,38 @@ function withinLimits(messages: ChatMessage[]): ChatMessage[] {
     .map((m) => ({ ...m, content: m.content.slice(0, MAX_TEXT_CHARS) }));
 }
 
+/** State that has built up over several documents can outgrow the request limits: send what fits. */
 function valuesToWire(values: FieldValues): FieldValue[] {
   return Object.entries(values)
     .filter(([, value]) => value.trim() !== "")
-    .map(([key, value]) => ({ key, value }));
+    .slice(0, MAX_FIELD_VALUES)
+    .map(([key, value]) => ({ key, value: value.slice(0, MAX_TEXT_CHARS) }));
 }
 
 function partiesToWire(parties: PartiesByRole): PartyDetails[] {
-  return Object.entries(parties).map(([role, party]) => ({ role, ...partyToWire(party) }));
+  return Object.entries(parties)
+    .map(([role, party]) => ({ role, ...partyToWire(party) }))
+    .filter((party) => party.company || party.name || party.title || party.address)
+    .slice(0, MAX_PARTIES);
 }
 
 /** One assistant turn. Throws an Error with a user-presentable message on failure. */
 export async function sendChat(messages: ChatMessage[], context: ChatContext): Promise<ChatReply> {
-  let response: Response;
   try {
-    response = await fetch("/api/chat", {
+    return await api<ChatReply>("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: {
         messages: withinLimits(messages),
         fields: toWireFields(context.data),
         documentType: context.documentType,
         values: valuesToWire(context.values),
         parties: partiesToWire(context.parties),
-      }),
+      },
     });
-  } catch {
-    throw new Error("Could not reach the server. Check your connection and try again.");
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 422) {
+      throw new Error("That message could not be sent. Please shorten it and try again.");
+    }
+    throw error;
   }
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
-    if (typeof body?.detail === "string") throw new Error(body.detail);
-    throw new Error(
-      response.status === 422
-        ? "That message could not be sent. Please shorten it and try again."
-        : "Something went wrong. Please try again.",
-    );
-  }
-  return (await response.json()) as ChatReply;
 }

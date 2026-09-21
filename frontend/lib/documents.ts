@@ -1,3 +1,4 @@
+import { ApiError, api } from "@/lib/api";
 import type { Party } from "@/lib/nda";
 
 /** The Mutual NDA has its own typed fields and layout; every other document is described by a DocumentSpec. */
@@ -66,12 +67,10 @@ export function documentTitle(spec: DocumentSpec, parties: PartiesByRole): strin
 
 /** Fetches the spec of a generic document. Throws an Error with a user-presentable message on failure. */
 export async function fetchDocumentSpec(key: string): Promise<DocumentSpec> {
-  let response: Response;
   try {
-    response = await fetch(`/api/documents/${encodeURIComponent(key)}`);
-  } catch {
-    throw new Error("Could not reach the server. Check your connection and try again.");
+    return await api<DocumentSpec>(`/api/documents/${encodeURIComponent(key)}`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 0) throw error;
+    throw new Error("Could not load the document. Please try again.");
   }
-  if (!response.ok) throw new Error("Could not load the document. Please try again.");
-  return (await response.json()) as DocumentSpec;
 }

@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { csaSpec } from "../fixtures";
-import { CSA_EVERYTHING, EVERYTHING, NDA_KEY, mockChat, mockDocuments, say, type Updates } from "./chatMock";
+import { CSA_EVERYTHING, EVERYTHING, NDA_KEY, mockChat, say, type Updates } from "./chatMock";
+import { alert, horizontalOverflow, signUp, watchConsole } from "./helpers";
 
 type PrintSpy = { __prints: string[] };
 
@@ -10,26 +10,16 @@ const section = (page: Page, heading: string): Locator =>
   doc(page).getByRole("heading", { name: heading }).locator("xpath=ancestor::section[1]");
 const chatPanel = (page: Page) => page.getByRole("region", { name: "Chat with the assistant" });
 const download = (page: Page) => page.getByRole("button", { name: "Download PDF" });
+const pageTitle = (page: Page) => page.locator("header h1");
 
 const todayLong = () =>
   new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-/** Starts a session (as the fake login would) and opens the document creator directly. */
-async function openCreator(page: Page): Promise<string[]> {
-  const requestedDocuments = await mockDocuments(page);
-  await page.addInitScript(() => sessionStorage.setItem("prelegal.session", "tester@example.com"));
-  await page.goto("/documents/");
-  return requestedDocuments;
-}
-
-/** Collects console errors/warnings and page errors so tests can assert a clean page. */
-function watchConsole(page: Page) {
-  const problems: string[] = [];
-  page.on("console", (m) => {
-    if (m.type() === "error" || m.type() === "warning") problems.push(`${m.type()}: ${m.text()}`);
-  });
-  page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
-  return problems;
+/** Signs up a fresh user and opens the editor. */
+async function openCreator(page: Page) {
+  await signUp(page);
+  await page.goto("/create/");
+  await expect(chatPanel(page)).toBeVisible();
 }
 
 /** Replaces window.print with a spy that records document.title at call time. */
@@ -57,22 +47,19 @@ async function fillNda(page: Page, updates: Updates) {
 
 const fillEverything = (page: Page) => fillNda(page, EVERYTHING);
 
-/** Has the (mocked) assistant choose the Cloud Service Agreement and fill in everything. */
+/** Has the (mocked) assistant choose the Cloud Service Agreement and fill in what it can. */
 async function fillCsa(page: Page) {
   await mockChat(page, CSA_EVERYTHING);
   await say(page, "Here are all the details.", "All filled in.");
   await expect(page.getByRole("article", { name: "Cloud Service Agreement" })).toBeVisible();
 }
 
-const horizontalOverflow = (page: Page) =>
-  page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-
 test.describe("page load", () => {
   test("renders cleanly with no console errors or hydration warnings, and nothing chosen yet", async ({ page }) => {
     const problems = watchConsole(page);
     await openCreator(page);
-    await expect(page).toHaveTitle("Prelegal - Legal document creator");
-    await expect(page.getByRole("heading", { level: 1, name: "Legal document creator" })).toBeVisible();
+    await expect(page).toHaveTitle("Document - Prelegal");
+    await expect(pageTitle(page)).toHaveText("New document");
     await expect(chatPanel(page).getByRole("log")).toContainText("What do you need?");
     await expect(page.getByText("Your document will appear here")).toBeVisible();
     await expect(doc(page)).toHaveCount(0);
@@ -86,10 +73,10 @@ test.describe("page load", () => {
     await expect(section(page, "Effective Date")).toContainText(todayLong());
   });
 
-  test("renders no agreement without JavaScript, because the page is behind the login gate", async ({ browser }) => {
+  test("renders no agreement without JavaScript, because the page is behind sign in", async ({ browser }) => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
-    await page.goto("/documents/");
+    await page.goto("/create/");
     await expect(page.getByRole("article")).toHaveCount(0);
     await context.close();
   });
@@ -107,8 +94,8 @@ test.describe("page load", () => {
 
 test.describe("chat", () => {
   test("sends the conversation and the current state, and shows the reply", async ({ page }) => {
-    const requests = await mockChat(page, { reply: "Thanks! Which state's law should govern?" });
     await openCreator(page);
+    const requests = await mockChat(page, { reply: "Thanks! Which state's law should govern?" });
     await say(page, "Acme and Globex", "Which state's law should govern?");
 
     expect(requests).toHaveLength(1);
@@ -117,15 +104,16 @@ test.describe("chat", () => {
     expect(requests[0].documentType).toBeNull();
     expect(requests[0].values).toEqual([]);
     expect(requests[0].fields.governingLaw).toBeNull();
+    expect(requests[0].fields.effectiveDate).toBeNull(); // no date nobody chose
   });
 
   test("keeps the conversation going and tells the assistant what is already filled in", async ({ page }) => {
+    await openCreator(page);
     const requests = await mockChat(
       page,
       { reply: "First.", documentType: NDA_KEY, updates: { governingLaw: "Ohio" } },
       { reply: "Second." },
     );
-    await openCreator(page);
     await say(page, "one", "First.");
     await say(page, "two", "Second.");
 
@@ -135,8 +123,8 @@ test.describe("chat", () => {
   });
 
   test("Enter sends, Shift+Enter adds a line, and the page does not reload", async ({ page }) => {
-    const requests = await mockChat(page, { reply: "Got it." });
     await openCreator(page);
+    const requests = await mockChat(page, { reply: "Got it." });
     const input = page.getByLabel("Message");
     await input.fill("line one");
     await input.press("Shift+Enter");
@@ -146,17 +134,17 @@ test.describe("chat", () => {
     await input.press("Enter");
     await expect(page.getByRole("log")).toContainText("Got it.");
     expect(requests[0].messages.at(-1)?.content).toBe("line one\nline two");
-    await expect(page).toHaveURL(/localhost:3100\/documents\/$/);
+    await expect(page).toHaveURL(/localhost:3100\/create\/$/);
     await expect(input).toHaveValue("");
   });
 
   test("shows an error, leaves the document alone, and retries", async ({ page }) => {
+    await openCreator(page);
     await mockChat(
       page,
       { status: 502, detail: "The AI assistant could not respond. Please try again." },
       { reply: "Back again.", documentType: NDA_KEY, updates: { governingLaw: "Ohio" } },
     );
-    await openCreator(page);
     await page.getByLabel("Message").fill("hello");
     await page.getByRole("button", { name: "Send" }).click();
 
@@ -170,22 +158,23 @@ test.describe("chat", () => {
   });
 
   test("reports an unreachable server", async ({ page }) => {
-    await page.route("**/api/chat", (route) => route.abort());
     await openCreator(page);
+    await page.route("**/api/chat", (route) => route.abort());
     await page.getByLabel("Message").fill("hello");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(chatPanel(page).getByRole("alert")).toContainText("Could not reach the server");
   });
 
-  test("an unsupported request gets an explanation and no document", async ({ page }) => {
+  test("an unsupported request gets an explanation, no document, and nothing saved", async ({ page }) => {
+    await openCreator(page);
     const reply = "I can't draft an employment agreement. The closest I can do is a Mutual NDA.";
     await mockChat(page, { reply });
-    await openCreator(page);
     await say(page, "Draft an employment agreement for a new hire", reply);
 
     await expect(doc(page)).toHaveCount(0);
     await expect(page.getByText("Your document will appear here")).toBeVisible();
     await expect(download(page)).toBeDisabled();
+    expect(await (await page.request.get("/api/drafts")).json()).toEqual([]);
   });
 });
 
@@ -194,7 +183,7 @@ test.describe("Mutual NDA", () => {
     await openCreator(page);
     await fillEverything(page);
 
-    await expect(page.getByText("Drafting: Mutual Non-Disclosure Agreement")).toBeVisible();
+    await expect(pageTitle(page)).toHaveText("Mutual Non-Disclosure Agreement");
     await expect(section(page, "Purpose")).toContainText("Exploring a joint venture.");
     await expect(section(page, "Effective Date")).toContainText("January 5, 2027");
     await expect(section(page, "Governing Law & Jurisdiction")).toContainText("Governing Law: Delaware");
@@ -248,28 +237,29 @@ test.describe("Mutual NDA", () => {
 });
 
 test.describe("other documents", () => {
-  test("shows the generated front page of the chosen document, loading its spec once", async ({ page }) => {
-    const requested = await openCreator(page);
-    await mockChat(page, { reply: "A CSA. Who are the parties?", documentType: "csa" }, { reply: "Thanks." });
+  test("shows the generated front page of the chosen document, loading its text from the server", async ({ page }) => {
+    await openCreator(page);
+    await mockChat(page, { reply: "A CSA. Who are the parties?", documentType: "csa" });
     await say(page, "a SaaS agreement", "A CSA. Who are the parties?");
 
-    const article = page.getByRole("article", { name: "Cloud Service Agreement" });
-    await expect(article).toBeVisible();
-    await expect(page.getByText("Drafting: Cloud Service Agreement · 0 of 3 details filled in")).toBeVisible();
+    await expect(page.getByRole("article", { name: "Cloud Service Agreement" })).toBeVisible();
+    await expect(pageTitle(page)).toHaveText("Cloud Service Agreement");
+    await expect(page.getByText("0 of 11 details filled in")).toBeVisible();
     await expect(section(page, "Parties")).toContainText("Provider: [Provider company]");
     await expect(section(page, "Order Form")).toContainText("Subscription Period: [Subscription Period]");
     await expect(section(page, "Key Terms")).toContainText("Governing Law: [Governing Law]");
     await expect(download(page)).toBeEnabled();
-
-    await say(page, "more", "Thanks.");
-    expect(requested).toEqual(["csa"]);
+    // The real standard terms, from the real template.
+    await expect(doc(page).getByRole("heading", { name: "Standard Terms" })).toBeVisible();
+    await expect(doc(page)).toContainText("Access and Use.");
   });
 
   test("fills in the values, the parties and the signature table as the assistant learns them", async ({ page }) => {
     await openCreator(page);
     await fillCsa(page);
 
-    await expect(page.getByText("Drafting: Cloud Service Agreement · 3 of 3 details filled in")).toBeVisible();
+    await expect(page.getByText("3 of 11 details filled in")).toBeVisible();
+    await expect(page.getByRole("progressbar", { name: "Details filled in" })).toHaveAttribute("aria-valuenow", "3");
     await expect(section(page, "Parties")).toContainText("Provider: Acme Inc");
     await expect(section(page, "Parties")).toContainText("Customer: Globex LLC");
     await expect(section(page, "Order Form")).toContainText("Subscription Period: 12 months from the Order Date");
@@ -283,44 +273,45 @@ test.describe("other documents", () => {
     }
   });
 
-  test("shows the standard terms with defined terms in bold and nested clause numbering", async ({ page }) => {
+  test("keeps the standard terms verbatim, with defined terms in bold and clauses numbered", async ({ page }) => {
     await openCreator(page);
     await fillCsa(page);
 
     const terms = doc(page).getByRole("heading", { name: "Standard Terms" }).locator("xpath=ancestor::section[1]");
-    await expect(terms.locator("strong", { hasText: /^Governing Law$/ })).toBeVisible();
-    // The numbers ("1.", "1.1.", "2.1." ...) are CSS-generated content, which the DOM does not expose, so
-    // check that the rules producing them are in effect.
-    const styles = await terms.locator("ol, li").evaluateAll((els) =>
-      els.map((el) => {
+    await expect(terms.locator("strong", { hasText: /^Governing Law$/ }).first()).toBeVisible();
+    // The clause numbers ("1.", "1.1.", "13.7." ...) are CSS-generated content, which the DOM does not expose, so
+    // check that the rules producing them are in effect on every list and item.
+    const numbering = await terms.evaluate((root) => {
+      const lists = [...root.querySelectorAll("ol")].map((el) => getComputedStyle(el).listStyleType);
+      const items = [...root.querySelectorAll("li")].map((el) => {
         const style = getComputedStyle(el);
-        return el.tagName === "OL"
-          ? style.listStyleType
-          : `${style.counterIncrement}|${getComputedStyle(el, "::before").content}`;
-      }),
-    );
-    expect(styles.filter((s) => s === "none")).toHaveLength(3); // the top-level list and one per clause
-    expect(styles.filter((s) => s.startsWith("clause 1|") && s.includes("counters(clause"))).toHaveLength(5);
-    // Sub-clauses ("a. in every case;") are their own paragraphs, set in from the clause text.
-    const sub = terms.getByText(/^a\. in every case;$/);
+        return style.counterIncrement.startsWith("clause") && getComputedStyle(el, "::before").content.includes("counters(clause");
+      });
+      return { lists: [...new Set(lists)], everyItemNumbered: items.every(Boolean), items: items.length };
+    });
+    expect(numbering.lists).toEqual(["none"]);
+    expect(numbering.everyItemNumbered).toBe(true);
+    expect(numbering.items).toBeGreaterThan(100);
+
+    // Lettered sub-clauses are their own paragraphs, set in from the clause text (this is CSA 5.3).
+    const sub = terms.getByText(/^a\. if the other party fails to cure a material breach/);
     await expect(sub).toBeVisible();
-    expect(await sub.evaluate((el) => getComputedStyle(el).marginLeft)).toBe("24px");
+    expect(await sub.evaluate((el) => [el.tagName, getComputedStyle(el).marginLeft])).toEqual(["P", "24px"]);
+    expect(await terms.locator("pre").count()).toBe(0);
     await expect(doc(page).getByRole("link", { name: "CC BY 4.0" })).toBeVisible();
   });
 
   test("switching to another document keeps the parties and the values that carry over", async ({ page }) => {
-    const requested = await openCreator(page);
+    await openCreator(page);
     await fillCsa(page);
     await mockChat(page, { reply: "And an SLA.", documentType: "sla", fieldValues: { "target-uptime": "99.9%" } });
     await say(page, "we also need an SLA", "And an SLA.");
 
-    const article = page.getByRole("article", { name: "Service Level Agreement" });
-    await expect(article).toBeVisible();
+    await expect(page.getByRole("article", { name: "Service Level Agreement" })).toBeVisible();
     await expect(section(page, "Parties")).toContainText("Provider: Acme Inc");
     await expect(section(page, "Order Form")).toContainText("Subscription Period: 12 months from the Order Date");
     await expect(section(page, "Order Form")).toContainText("Target Uptime: 99.9%");
-    await expect(page.getByText("Drafting: Service Level Agreement · 2 of 2 details filled in")).toBeVisible();
-    expect(requested).toEqual(["csa", "sla"]);
+    await expect(page.getByText("2 of 7 details filled in")).toBeVisible();
   });
 
   test("moving from a generic document to the NDA and back shows each with its own details", async ({ page }) => {
@@ -337,16 +328,15 @@ test.describe("other documents", () => {
   });
 
   test("says when the document cannot be loaded and loads it on retry", async ({ page }) => {
+    await openCreator(page);
     let failNext = true;
     await page.route("**/api/documents/*", (route) => {
       if (failNext) {
         failNext = false;
         return route.abort();
       }
-      return route.fulfill({ json: csaSpec });
+      return route.continue();
     });
-    await page.addInitScript(() => sessionStorage.setItem("prelegal.session", "tester@example.com"));
-    await page.goto("/documents/");
     await mockChat(page, { reply: "A CSA.", documentType: "csa" });
     await say(page, "a csa", "A CSA.");
 
@@ -390,6 +380,7 @@ test.describe("hostile input", () => {
       void d.dismiss();
     });
     const payload = '<img src=x onerror="alert(1)"><' + 'script>alert(2)</' + "script> [x](javascript:alert(3)) **b**";
+    await openCreator(page);
     await mockChat(page, {
       reply: payload,
       documentType: NDA_KEY,
@@ -401,7 +392,6 @@ test.describe("hostile input", () => {
         party1: { company: payload },
       },
     });
-    await openCreator(page);
     await say(page, "go", "[x](javascript:alert(3))");
     await page.waitForTimeout(300);
 
@@ -413,6 +403,71 @@ test.describe("hostile input", () => {
   });
 });
 
+test.describe("draft disclaimer", () => {
+  test("is shown above the agreement, for the NDA and for the other documents", async ({ page }) => {
+    await openCreator(page);
+    await expect(page.getByRole("note")).toHaveCount(0); // nothing to disclaim yet
+    await fillEverything(page);
+    await expect(page.getByRole("note")).toContainText("Draft for review");
+    await expect(page.getByRole("note")).toContainText("not legal advice");
+    await expect(page.getByRole("note")).toContainText("qualified lawyer");
+
+    await fillCsa(page);
+    await expect(page.getByRole("note")).toContainText("Draft for review");
+  });
+
+  test("is in the app footer on My documents, and shown once (not twice) in the editor", async ({ page }) => {
+    await openCreator(page);
+    await fillCsa(page);
+    const visible = (text: string) => page.getByText(text, { exact: false }).filter({ visible: true });
+    // The editor shows the banner above the agreement; the footer does not say it again.
+    await expect(page.getByRole("note")).toContainText("Draft for review");
+    await expect(page.getByRole("contentinfo")).not.toContainText("subject to legal review");
+    await expect(visible("subject to legal review")).toHaveCount(0);
+    await expect(visible("Draft for review")).toHaveCount(1);
+
+    await page.goto("/documents/");
+    await expect(page.getByRole("contentinfo")).toContainText("drafts and are subject to legal review");
+    await expect(visible("subject to legal review")).toHaveCount(1);
+  });
+
+  test("is repeated at the foot of every printed page, and the on-screen chrome is left out", async ({ page }) => {
+    await openCreator(page);
+    await fillCsa(page);
+    await page.emulateMedia({ media: "print" });
+
+    // Where the browser has page margin boxes, the disclaimer is in the bottom margin of every page (it cannot
+    // touch the text there); elsewhere a fixed element, which browsers repeat on each page, stands in for it.
+    const pageBoxes = await page.evaluate(() => {
+      const rules = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+      const flat = rules.flatMap((rule) => (rule instanceof CSSMediaRule ? [...rule.cssRules] : [rule]));
+      const footers = flat
+        .filter((rule): rule is CSSPageRule => rule instanceof CSSPageRule)
+        .flatMap((rule) => [...((rule as unknown as { cssRules: CSSRuleList }).cssRules ?? [])])
+        .map((rule) => (rule as CSSStyleRule).style?.getPropertyValue("content") ?? "");
+      return { supported: "CSSMarginRule" in window, footers };
+    });
+    const printed = page.locator(".print-disclaimer");
+    if (pageBoxes.supported) {
+      expect(pageBoxes.footers.some((text) => text.includes("Draft, subject to legal review. Not legal advice."))).toBe(true);
+      await expect(printed).toBeHidden();
+    } else {
+      await expect(printed).toBeVisible();
+      await expect(printed).toContainText("Draft, subject to legal review. Not legal advice.");
+      expect(await printed.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
+    }
+    await expect(page.getByRole("note")).toBeHidden(); // the on-screen banner gives way to it
+    await expect(page.getByRole("banner")).toBeHidden();
+    await expect(page.getByRole("contentinfo")).toBeHidden();
+  });
+
+  test("is not on screen twice", async ({ page }) => {
+    await openCreator(page);
+    await fillCsa(page);
+    await expect(page.locator(".print-disclaimer")).toBeHidden();
+  });
+});
+
 test.describe("print / download", () => {
   test("print view shows only the agreement", async ({ page }) => {
     await openCreator(page);
@@ -420,8 +475,7 @@ test.describe("print / download", () => {
     await page.emulateMedia({ media: "print" });
     await expect(doc(page)).toBeVisible();
     await expect(download(page)).toBeHidden();
-    await expect(page.getByRole("heading", { name: "Legal document creator" })).toBeHidden();
-    await expect(page.getByText("Drafting:")).toBeHidden();
+    await expect(pageTitle(page)).toBeHidden();
     await expect(chatPanel(page)).toBeHidden();
     await expect(page.getByText("Choose “Save as PDF”")).toBeHidden();
     // The agreement fills the page width now that the chat column is gone.
@@ -443,12 +497,13 @@ test.describe("print / download", () => {
   test("the Download button prints with a descriptive page title, then restores it", async ({ page }) => {
     await spyOnPrint(page);
     await openCreator(page);
+    const title = await page.title();
     await fillNda(page, { party1: { company: "Acme Corp" }, party2: { company: "Globex" } });
     await download(page).click();
 
     expect(await prints(page)).toEqual(["Mutual NDA - Acme Corp - Globex"]);
     await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
-    await expect(page).toHaveTitle("Prelegal - Legal document creator");
+    await expect(page).toHaveTitle(title);
   });
 
   test("another document's PDF is named after the document and its parties", async ({ page }) => {
@@ -468,7 +523,7 @@ test.describe("print / download", () => {
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     const pages = pdf.toString("latin1").match(/\/Type\s*\/Page\b(?!s)/g)?.length ?? 0;
     expect(pages).toBeGreaterThanOrEqual(3); // cover page + at least two pages of standard terms
-    expect(pages).toBeLessThanOrEqual(8);
+    expect(pages).toBeLessThanOrEqual(9);
   });
 
   test("produces a PDF of another document with the terms starting on a new page", async ({ page }, testInfo) => {
@@ -479,7 +534,7 @@ test.describe("print / download", () => {
 
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     const pages = pdf.toString("latin1").match(/\/Type\s*\/Page\b(?!s)/g)?.length ?? 0;
-    expect(pages).toBe(2); // the front page, then the standard terms
+    expect(pages).toBeGreaterThanOrEqual(8); // the front page, then the full standard terms
   });
 });
 
@@ -516,6 +571,14 @@ test.describe("responsive layout", () => {
     expect(docBox!.x).toBeGreaterThan(chatBox!.x + chatBox!.width);
   });
 
+  test("desktop width: the chat stays in view while the agreement scrolls", async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openCreator(page);
+    await fillCsa(page);
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await expect(chatPanel(page)).toBeInViewport();
+  });
+
   test("the signature table fits on a very narrow phone", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 320, height: 640 } });
     const page = await context.newPage();
@@ -539,8 +602,8 @@ test.describe("keyboard", () => {
   });
 
   test("the chat can be used entirely from the keyboard", async ({ page }) => {
-    await mockChat(page, { reply: "Keyboard reply.", documentType: NDA_KEY, updates: { governingLaw: "Ohio" } });
     await openCreator(page);
+    await mockChat(page, { reply: "Keyboard reply.", documentType: NDA_KEY, updates: { governingLaw: "Ohio" } });
     await page.getByLabel("Message").focus();
     await page.keyboard.type("hello");
     await page.keyboard.press("Tab");
@@ -559,38 +622,53 @@ test.describe("accessibility (axe, WCAG 2.0/2.1 A + AA)", () => {
   const summarize = (violations: Awaited<ReturnType<typeof run>>) =>
     violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(" ")).slice(0, 2).join(" | ")}`);
 
-  test("initial page has no violations", async ({ page }) => {
+  test("the empty editor has no violations", async ({ page }) => {
     await openCreator(page);
     expect(summarize(await run(page))).toEqual([]);
   });
 
   test("a document with unfilled placeholders has no violations", async ({ page }) => {
-    // Known defect (review + axe): the gray-400 placeholder text in the agreement fails colour contrast. Remove test.fail() once fixed.
-    test.fail();
     await openCreator(page);
     await chooseNda(page);
     expect(summarize(await run(page))).toEqual([]);
   });
 
-  test("filled-in Mutual NDA has no violations", async ({ page }) => {
+  test("an unfilled generic document has no violations", async ({ page }) => {
+    await openCreator(page);
+    await mockChat(page, { reply: "A CSA.", documentType: "csa" });
+    await say(page, "a csa", "A CSA.");
+    await expect(page.getByRole("article", { name: "Cloud Service Agreement" })).toBeVisible();
+    expect(summarize(await run(page))).toEqual([]);
+  });
+
+  test("a filled-in Mutual NDA has no violations", async ({ page }) => {
     await openCreator(page);
     await fillEverything(page);
     expect(summarize(await run(page))).toEqual([]);
   });
 
-  test("filled-in generic document has no violations", async ({ page }) => {
+  test("a filled-in generic document has no violations", async ({ page }) => {
     await openCreator(page);
     await fillCsa(page);
     expect(summarize(await run(page))).toEqual([]);
   });
 
-  test("chat showing an error has no violations", async ({ page }) => {
-    await mockChat(page, { status: 503, detail: "The AI assistant is not configured." });
+  test("the chat showing an error has no violations", async ({ page }) => {
     await openCreator(page);
+    await mockChat(page, { status: 503, detail: "The AI assistant is not configured." });
     await page.getByLabel("Message").fill("hello");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(chatPanel(page).getByRole("alert")).toBeVisible();
-    // Scoped to the chat: the agreement's placeholder contrast is the known defect above.
-    expect(summarize(await run(page, '[aria-label="Chat with the assistant"]'))).toEqual([]);
+    expect(summarize(await run(page))).toEqual([]);
+  });
+
+  test("the save error has no violations", async ({ page }) => {
+    await openCreator(page);
+    await page.route("**/api/drafts", (route) => route.abort());
+    await mockChat(page, { reply: "A CSA.", documentType: "csa" });
+    await say(page, "a csa", "A CSA.");
+    await expect(page.getByText("Couldn't save this draft.")).toBeVisible();
+    expect(summarize(await run(page))).toEqual([]);
+    expect(await alert(page).count()).toBeGreaterThan(0);
   });
 });

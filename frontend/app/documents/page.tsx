@@ -1,15 +1,12 @@
-import { DocumentCreator } from "@/components/DocumentCreator";
-import { RequireLogin } from "@/components/RequireLogin";
-import { loadMutualNdaTemplates } from "@/lib/templates";
+import { AppShell } from "@/components/AppShell";
+import { MyDocuments } from "@/components/MyDocuments";
 
-export default async function DocumentsPage() {
-  const templates = await loadMutualNdaTemplates();
+export const metadata = { title: "My documents - Prelegal" };
 
+export default function DocumentsPage() {
   return (
-    <RequireLogin>
-      <main className="flex-1">
-        <DocumentCreator templates={templates} />
-      </main>
-    </RequireLogin>
+    <AppShell>
+      <MyDocuments />
+    </AppShell>
   );
 }

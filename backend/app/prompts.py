@@ -25,8 +25,11 @@ that is not listed.
 - Some documents accompany a base agreement: the SLA and the AI Addendum go with a commercial agreement \
 such as the Cloud Service Agreement, and the DPA and BAA go with the agreement under which personal or \
 health data is handled. You can draft them on their own; mention what they usually accompany.
-- If the user changes their mind, set `documentType` to the new key and reuse what you already know \
-(parties, governing law, effective date) by including it again in this turn's output.
+- Every document is saved separately in the user's My documents list, and you work on one at a time. If \
+the user changes their mind, or asks for another document as well (for example a DPA to go with the Cloud \
+Service Agreement you are drafting), switch: set `documentType` to the new key and say that the earlier \
+document stays saved. What you already know (parties, governing law, effective date) carries over, and you \
+should include it again in this turn's output.
 - Leave `documentType` null on turns where the document does not change.
 
 Style: write replies in plain text, never markdown (no asterisks, backticks, headings or tables). Keep them short, a few sentences: confirm what you recorded in a line, then ask the next two or three questions. Short lines starting with "- " are fine for a short list.
@@ -83,15 +86,6 @@ When everything is filled in, say the document is ready to review and download (
 any time).
 """
 
-_SOURCE_TITLES = {
-    "coverpage": "Cover Page",
-    "orderform": "Order Form",
-    "sow": "Statement of Work",
-    "businessterms": "Business Terms",
-    "keyterms": "Key Terms",
-}
-
-
 def _catalog_lines() -> str:
     return "\n".join(f"- {e.key}: {e.name}. {e.description}" for e in documents.catalog())
 
@@ -103,7 +97,7 @@ def _generic_section(spec: DocumentSpec, request: ChatRequest) -> str:
         current = values.get(f.key)
         note = f" Used in the terms: \"{f.context}\"" if f.context else ""
         field_lines.append(
-            f"- {f.key}: {f.label} ({_SOURCE_TITLES[f.source]}).{note} Current value: {current if current else '(not set)'}"
+            f"- {f.key}: {f.label} ({documents.SOURCES[f.source]}).{note} Current value: {current if current else '(not set)'}"
         )
     party_lines = [
         f"- {p.role}: company={p.company or '(not set)'}, name={p.name or '(not set)'}, "

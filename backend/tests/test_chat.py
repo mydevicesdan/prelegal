@@ -51,6 +51,12 @@ def api_key(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
 
+@pytest.fixture
+def client(user_client):
+    """Chat needs a signed-in user."""
+    return user_client
+
+
 def returns(monkeypatch, result: AiTurn):
     """Makes the model answer with `result`, and records the request it was given."""
     seen = {}
@@ -203,6 +209,109 @@ class TestDocumentChoice:
         body = client.post("/api/chat", json=request_body(documentType="mutual-nda")).json()
         assert body["updates"]["governingLaw"] == "Ohio"
         assert body["fieldValues"] is None and body["parties"] is None
+
+
+class TestDocumentChoiceRerun:
+    """Details in the message that picks the document can only be recorded once the model knows the document."""
+
+    def scripted(self, monkeypatch, *turns: AiTurn):
+        requests = []
+        queue = list(turns)
+
+        def fake_run_turn(request):
+            requests.append(request)
+            return queue.pop(0)
+
+        monkeypatch.setattr(llm, "run_turn", fake_run_turn)
+        return requests
+
+    def test_choosing_a_document_asks_the_model_again_with_the_document_set(self, client: TestClient, monkeypatch):
+        requests = self.scripted(
+            monkeypatch,
+            turn("Got it, a CSA.", document_type="csa"),
+            turn(
+                "Recorded Acme and Delaware.",
+                document_type="csa",
+                field_values=[FieldValue(key="governing-law", value="Delaware")],
+                parties=[party("Provider", company="Acme")],
+            ),
+        )
+        body = client.post("/api/chat", json=request_body()).json()
+
+        assert [r.document_type for r in requests] == [None, "csa"]
+        assert body["reply"] == "Recorded Acme and Delaware."
+        assert body["documentType"] == "csa"
+        assert body["fieldValues"] == [{"key": "governing-law", "value": "Delaware"}]
+        assert [p["company"] for p in body["parties"]] == ["Acme"]
+
+    def test_the_document_stays_chosen_even_if_the_second_answer_forgets_to_say_so(self, client: TestClient, monkeypatch):
+        self.scripted(monkeypatch, turn("A CSA.", document_type="csa"), turn("Who are the parties?", document_type=None))
+        body = client.post("/api/chat", json=request_body()).json()
+        assert body["documentType"] == "csa" and body["reply"] == "Who are the parties?"
+
+    def test_switching_to_another_document_asks_again_for_that_one(self, client: TestClient, monkeypatch):
+        requests = self.scripted(
+            monkeypatch,
+            turn("Switching.", document_type="sla"),
+            turn("SLA it is.", document_type=None, field_values=[FieldValue(key="target-uptime", value="99.9%")]),
+        )
+        body = client.post("/api/chat", json=request_body(documentType="csa")).json()
+        assert [r.document_type for r in requests] == ["csa", "sla"]
+        assert body["documentType"] == "sla"
+        assert body["fieldValues"] == [{"key": "target-uptime", "value": "99.9%"}]
+
+    def test_no_second_call_when_the_document_does_not_change(self, client: TestClient, monkeypatch):
+        requests = self.scripted(monkeypatch, turn("More.", document_type=None), turn("Same.", document_type="csa"))
+        client.post("/api/chat", json=request_body(documentType="csa"))
+        client.post("/api/chat", json=request_body(documentType="csa"))
+        assert len(requests) == 2  # one call per request
+
+    def test_no_second_call_for_an_unknown_document(self, client: TestClient, monkeypatch):
+        requests = self.scripted(monkeypatch, turn("Sure.", document_type="employment-agreement"))
+        assert client.post("/api/chat", json=request_body()).json()["documentType"] is None
+        assert len(requests) == 1
+
+    def test_a_failing_second_call_is_a_502(self, client: TestClient, monkeypatch):
+        calls = []
+
+        def flaky(request):
+            calls.append(request)
+            if len(calls) == 2:
+                raise RuntimeError("upstream detail")
+            return turn("A CSA.", document_type="csa")
+
+        monkeypatch.setattr(llm, "run_turn", flaky)
+        response = client.post("/api/chat", json=request_body())
+        assert response.status_code == 502 and "upstream" not in response.text
+
+
+class TestChatAccess:
+    def test_needs_a_signed_in_user(self, app, monkeypatch):
+        monkeypatch.setattr(llm, "run_turn", lambda *_: pytest.fail("LLM must not be called"))
+        with TestClient(app) as anonymous:
+            assert anonymous.post("/api/chat", json=request_body()).status_code == 401
+
+    def test_is_rate_limited_per_user(self, client: TestClient, other_client: TestClient, monkeypatch):
+        calls = []
+        monkeypatch.setattr(llm, "run_turn", lambda request: calls.append(request) or turn("ok"))
+        assert [client.post("/api/chat", json=request_body()).status_code for _ in range(20)] == [200] * 20
+        limited = client.post("/api/chat", json=request_body())
+        assert limited.status_code == 429 and "too quickly" in limited.json()["detail"]
+        assert len(calls) == 20  # the refused message never reached the model
+        # Another user is not affected.
+        assert other_client.post("/api/chat", json=request_body()).status_code == 200
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            request_body(documentType="x" * 101),
+            request_body(values=[{"key": "k" * 101, "value": "v"}]),
+            request_body(parties=[{"role": "r" * 101, **EMPTY_PARTY}]),
+        ],
+    )
+    def test_keys_roles_and_document_types_are_capped(self, client: TestClient, monkeypatch, body):
+        monkeypatch.setattr(llm, "run_turn", lambda *_: pytest.fail("LLM must not be called"))
+        assert client.post("/api/chat", json=body).status_code == 422
 
 
 class TestFieldSanitising:

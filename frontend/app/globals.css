@@ -2,21 +2,23 @@
 
 /* Light theme only: the agreement is a paper document, so the app doesn't follow the OS dark mode. */
 :root {
-  --background: #f9fafb;
-  --foreground: #171717;
+  --background: #f6f7f9;
+  --foreground: #1f2937;
   color-scheme: light;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-public-sans);
+  --font-serif: var(--font-newsreader);
+  --font-display: var(--font-newsreader);
 
-  /* Prelegal brand palette */
+  /* Prelegal brand palette. Purple is for the main action, blue for focus and links, yellow marks a draft. */
   --color-brand-yellow: #ecad0a;
   --color-brand-blue: #209dd7;
   --color-brand-purple: #753991;
+  --color-brand-purple-dark: #65307f; /* hover state of purple buttons */
   --color-brand-navy: #032147;
   --color-brand-gray: #888888;
 }
@@ -24,16 +26,74 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-public-sans), system-ui, Arial, sans-serif;
+}
+
+/* Keyboard focus is always visible, on everything. */
+:focus-visible {
+  outline: 2px solid var(--color-brand-blue);
+  outline-offset: 2px;
+}
+
+/* The yellow highlighter on the sign-in page sweeps across once, as if the field had just been filled in. */
+.highlight-sweep {
+  background-image: linear-gradient(var(--color-brand-yellow), var(--color-brand-yellow));
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 100% 92%;
+  animation: highlight-sweep 900ms 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes highlight-sweep {
+  from {
+    background-size: 0% 92%;
+  }
+  to {
+    background-size: 100% 92%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .highlight-sweep {
+    animation: none;
+  }
+}
+
+/* The disclaimer at the foot of every printed page. Browsers that support page margin boxes (Chrome, Edge) print
+   it in the bottom margin, where it can never touch the text. For the others, PrintDisclaimer marks the page
+   (.no-margin-boxes) and a fixed element, which browsers repeat on each page, stands in for it.
+   Keep the wording of the two in step (components/Disclaimer.tsx). */
+.print-disclaimer {
+  display: none;
 }
 
 @media print {
   @page {
-    margin: 20mm;
+    margin: 20mm 20mm 24mm;
+
+    @bottom-center {
+      content: "Draft, subject to legal review. Not legal advice. Prepared with Prelegal.";
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 8.5pt;
+      color: #4b5563;
+    }
   }
 
   body {
     background: #fff;
+  }
+
+  .no-margin-boxes .print-disclaimer {
+    display: block;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    border-top: 1px solid #9ca3af;
+    padding-top: 2mm;
+    text-align: center;
+    font-size: 8.5pt;
+    color: #4b5563;
   }
 }
 

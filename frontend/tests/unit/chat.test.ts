@@ -149,11 +149,24 @@ describe("sendChat", () => {
     expect(requestBody(fetchMock)).toMatchObject({
       documentType: "csa",
       values: [{ key: "governing-law", value: "Delaware" }],
-      parties: [
-        { role: "Provider", company: "Acme", name: "Jane", title: null, address: null },
-        { role: "Customer", company: null, name: null, title: null, address: null },
-      ],
+      parties: [{ role: "Provider", company: "Acme", name: "Jane", title: null, address: null }],
     });
+    expect(requestBody(fetchMock).parties).toHaveLength(1); // a party with nothing filled in is not sent
+  });
+
+  it("never sends more parties or values than the backend accepts", async () => {
+    const fetchMock = mockChatApi(chatReply("ok"));
+    const parties = Object.fromEntries(
+      ["A", "B", "C", "D", "E", "F"].map((role) => [role, { company: `${role} Inc`, name: "", title: "", address: "" }]),
+    );
+    const values = Object.fromEntries(Array.from({ length: 130 }, (_, i) => [`field-${i}`, "x"]));
+    values.long = "y".repeat(5000);
+    await sendChat(messages, { data, documentType: "csa", values, parties });
+
+    const body = requestBody(fetchMock);
+    expect(body.parties).toHaveLength(4);
+    expect(body.values).toHaveLength(100);
+    expect(body.values.every((v: { value: string }) => v.value.length <= 4000)).toBe(true);
   });
 
   it("sends only the most recent 50 messages, each within 4000 characters", async () => {
