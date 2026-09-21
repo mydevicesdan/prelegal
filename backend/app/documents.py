@@ -23,10 +23,16 @@ _NDA_FILENAMES = {"Mutual-NDA.md", "Mutual-NDA-coverpage.md"}
 # Terms that name a party rather than a deal term.
 PARTY_ROLES = ("Customer", "Provider", "Partner", "Company")
 
-# The external page a field belongs to, in the order they are presented.
-SOURCES = ("coverpage", "orderform", "sow", "businessterms", "keyterms")
+# The external page a field belongs to (key used in the templates -> title), in the order they are presented.
+SOURCES = {
+    "coverpage": "Cover Page",
+    "orderform": "Order Form",
+    "sow": "Statement of Work",
+    "businessterms": "Business Terms",
+    "keyterms": "Key Terms",
+}
 
-_FIELD_SPAN = re.compile(r'<span class="(coverpage|keyterms|orderform|sow|businessterms)_link"(?: id="[^"]*")?>([^<]*)</span>')
+_FIELD_SPAN = re.compile(r'<span class="(' + "|".join(SOURCES) + r')_link"(?: id="[^"]*")?>([^<]*)</span>')
 _HEADER_SPAN = re.compile(r'<span class="header_[23]"(?: id="[^"]*")?>([^<]*)</span>')
 _ANY_SPAN_TAG = re.compile(r"</?span[^>]*>")
 _LIST_NUMBER = re.compile(r"^\s*\d+\.\s+")
@@ -175,13 +181,12 @@ def parse_template(entry: CatalogEntry, markdown: str) -> DocumentSpec:
         for index, context in _context_for(line, occurrences).items():
             contexts.setdefault(keys[index], context)
 
-    parties = tuple(role for role in PARTY_ROLES if slugify(role) in labels)
-    parties = tuple(sorted(parties, key=lambda role: order.index(slugify(role))))
+    parties = tuple(labels[key] for key in order if labels[key] in PARTY_ROLES)
     fields = tuple(
         Field(
             key=key,
             label=labels[key],
-            source=max(sources[key], key=lambda s: (sources[key][s], -SOURCES.index(s))),
+            source=max(sources[key], key=lambda s: (sources[key][s], -list(SOURCES).index(s))),
             context=contexts.get(key, ""),
         )
         for key in order

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { Party } from "@/lib/nda";
 
 export function Placeholder({ children }: { children: string }) {
-  return <span className="italic text-gray-400">[{children}]</span>;
+  return <span className="italic text-gray-500">[{children}]</span>;
 }
 
 export function Section({

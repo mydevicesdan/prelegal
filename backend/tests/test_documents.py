@@ -250,6 +250,14 @@ class TestSubClauses:
 
 
 class TestDocumentsApi:
+    @pytest.fixture
+    def client(self, user_client: TestClient):
+        return user_client
+
+    def test_needs_a_signed_in_user(self, app):
+        with TestClient(app) as anonymous:
+            assert anonymous.get("/api/documents/csa").status_code == 401
+
     def test_returns_the_spec_in_camel_case(self, client: TestClient):
         response = client.get("/api/documents/csa")
         assert response.status_code == 200

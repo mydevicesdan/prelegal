@@ -1,9 +1,10 @@
-import { LoginForm } from "@/components/LoginForm";
+import { AuthLayout } from "@/components/AuthLayout";
+import { SignInForm } from "@/components/AuthForms";
 
-export default function Home() {
+export default function SignInPage() {
   return (
-    <main className="flex flex-1 flex-col">
-      <LoginForm />
-    </main>
+    <AuthLayout>
+      <SignInForm />
+    </AuthLayout>
   );
 }

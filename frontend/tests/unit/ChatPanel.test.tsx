@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPanel, GREETING } from "@/components/ChatPanel";
-import type { ChatContext } from "@/lib/chat";
+import type { ChatContext, ChatMessage } from "@/lib/chat";
 import { initialFormState } from "@/lib/nda";
 import { chatReply, mockChatApi, ndaReply, requestBody } from "./chatFixtures";
 
@@ -15,9 +15,9 @@ const context: ChatContext = {
   parties: { Provider: { company: "Acme", name: "", title: "", address: "" } },
 };
 
-const setup = (onTurn = vi.fn()) => {
+const setup = (onTurn = vi.fn(), initialMessages?: ChatMessage[]) => {
   const user = userEvent.setup();
-  render(<ChatPanel context={context} onTurn={onTurn} />);
+  render(<ChatPanel context={context} onTurn={onTurn} initialMessages={initialMessages} />);
   return { user, onTurn, input: screen.getByLabelText("Message") };
 };
 
@@ -98,6 +98,63 @@ describe("ChatPanel", () => {
       documentType: "csa",
       fieldValues: [{ key: "governing-law", value: "Ohio" }],
     });
+  });
+
+  it("reports the whole conversation with each answer, so it can be saved", async () => {
+    mockChatApi(chatReply("A CSA."), chatReply("More."));
+    const { user, input, onTurn } = setup();
+    await user.type(input, "first");
+    await user.click(sendButton());
+    await screen.findByText("A CSA.");
+    await user.type(input, "second");
+    await user.click(sendButton());
+    await screen.findByText("More.");
+
+    expect(onTurn).toHaveBeenCalledTimes(2);
+    expect(onTurn.mock.calls[0]![1]).toEqual([
+      { role: "assistant", content: GREETING },
+      { role: "user", content: "first" },
+      { role: "assistant", content: "A CSA." },
+    ]);
+    expect(onTurn.mock.calls[1]![1].map((m: ChatMessage) => m.content)).toEqual([GREETING, "first", "A CSA.", "second", "More."]);
+  });
+
+  it("does not report a turn that failed", async () => {
+    mockChatApi({ status: 502, body: { detail: "The AI assistant could not respond." } });
+    const { user, input, onTurn } = setup();
+    await user.type(input, "hi");
+    await user.click(sendButton());
+    await screen.findByRole("alert");
+    expect(onTurn).not.toHaveBeenCalled();
+  });
+
+  it("carries on from a saved conversation instead of starting with the greeting", async () => {
+    const saved: ChatMessage[] = [
+      { role: "assistant", content: "Hello there." },
+      { role: "user", content: "A CSA for Acme." },
+      { role: "assistant", content: "Recorded the parties." },
+    ];
+    const backend = mockChatApi(chatReply("Next."));
+    const { user, input, onTurn } = setup(vi.fn(), saved);
+    const log = screen.getByRole("log");
+    expect(log).toHaveTextContent("Recorded the parties.");
+    expect(log).not.toHaveTextContent("What do you need?");
+
+    await user.type(input, "courts");
+    await user.click(sendButton());
+    await screen.findByText("Next.");
+    expect(requestBody(backend).messages.map((m: ChatMessage) => m.content)).toEqual([
+      "Hello there.",
+      "A CSA for Acme.",
+      "Recorded the parties.",
+      "courts",
+    ]);
+    expect(onTurn.mock.calls[0]![1]).toHaveLength(5);
+  });
+
+  it("starts with the greeting when the saved conversation is empty", () => {
+    setup(vi.fn(), []);
+    expect(screen.getByRole("log")).toHaveTextContent("What do you need?");
   });
 
   it("opens by offering the documents it can draft", () => {

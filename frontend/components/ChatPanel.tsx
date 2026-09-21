@@ -8,6 +8,7 @@ import {
   type ChatMessage,
   type ChatReply,
 } from "@/lib/chat";
+import { Button } from "./ui";
 
 export const GREETING =
   "Hi! I can help you draft a legal agreement from Common Paper's standard templates. What do you need? For example an NDA, a cloud service agreement, a professional services agreement or a data processing agreement, or just describe the situation and I'll suggest one.";
@@ -15,13 +16,18 @@ export const GREETING =
 interface ChatPanelProps {
   /** The document as it currently stands, sent with each message so the assistant knows what is filled in. */
   context: ChatContext;
-  onTurn: (reply: ChatReply) => void;
+  /** Called after each answer with the reply and the whole conversation so far (so it can be saved). */
+  onTurn: (reply: ChatReply, conversation: ChatMessage[]) => void;
+  /** A saved conversation to carry on from. */
+  initialMessages?: ChatMessage[];
 }
 
-export function ChatPanel({ context, onTurn }: ChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: GREETING },
-  ]);
+const OPENING: ChatMessage[] = [{ role: "assistant", content: GREETING }];
+
+export function ChatPanel({ context, onTurn, initialMessages }: ChatPanelProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    initialMessages && initialMessages.length > 0 ? initialMessages : OPENING,
+  );
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,8 +43,9 @@ export function ChatPanel({ context, onTurn }: ChatPanelProps) {
     setError(null);
     try {
       const turn = await sendChat(history, context);
-      onTurn(turn);
-      setMessages([...history, { role: "assistant", content: turn.reply }]);
+      const conversation: ChatMessage[] = [...history, { role: "assistant", content: turn.reply }];
+      setMessages(conversation);
+      onTurn(turn, conversation);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
@@ -64,14 +71,19 @@ export function ChatPanel({ context, onTurn }: ChatPanelProps) {
   return (
     <section
       aria-label="Chat with the assistant"
-      className="flex h-[32rem] flex-col rounded-lg border border-gray-200 bg-white lg:h-[calc(100vh-12rem)]"
+      className="flex h-[34rem] flex-col rounded-lg border border-gray-200 bg-white lg:h-[calc(100vh-11rem)]"
     >
+      <div className="border-b border-gray-200 px-4 py-3">
+        <h2 className="font-display text-lg font-semibold text-brand-navy">Assistant</h2>
+        <p className="text-sm text-gray-600">Describe what you need. It fills in the agreement as you talk.</p>
+      </div>
+
       <div
         ref={log}
         role="log"
         aria-live="polite"
         aria-label="Conversation"
-        className="flex-1 space-y-3 overflow-y-auto p-4"
+        className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
       >
         {messages.map((message, index) => (
           <div
@@ -79,25 +91,20 @@ export function ChatPanel({ context, onTurn }: ChatPanelProps) {
             className={message.role === "user" ? "flex justify-end" : "flex justify-start"}
           >
             <p
-              className={`max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${
+              className={`max-w-[88%] whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed ${
                 message.role === "user"
-                  ? "bg-brand-navy text-white"
-                  : "bg-gray-100 text-gray-900"
+                  ? "rounded-2xl rounded-br-sm bg-brand-navy text-white"
+                  : "rounded-2xl rounded-bl-sm bg-gray-100 text-gray-900"
               }`}
             >
-              <span className="sr-only">
-                {message.role === "user" ? "You: " : "Assistant: "}
-              </span>
+              <span className="sr-only">{message.role === "user" ? "You: " : "Assistant: "}</span>
               {message.content}
             </p>
           </div>
         ))}
         {pending && <p className="text-sm italic text-gray-600">Assistant is thinking…</p>}
         {error && (
-          <div
-            role="alert"
-            className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-          >
+          <div role="alert" className="rounded-md border-l-4 border-red-600 bg-red-50 px-3.5 py-3 text-sm text-red-900">
             <p>{error}</p>
             <button
               type="button"
@@ -118,20 +125,16 @@ export function ChatPanel({ context, onTurn }: ChatPanelProps) {
         <textarea
           id="chat-message"
           rows={2}
-          maxLength={MAX_TEXT_CHARS}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
+          maxLength={MAX_TEXT_CHARS}
           placeholder="Type your answer…"
-          className="min-w-0 flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm placeholder:text-gray-600 focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+          className="min-w-0 flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-[15px] text-gray-900 placeholder:text-gray-600 focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
         />
-        <button
-          type="submit"
-          disabled={pending || !draft.trim()}
-          className="rounded-md bg-brand-purple px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-purple/90 focus:outline-none focus:ring-2 focus:ring-brand-blue disabled:opacity-50"
-        >
+        <Button type="submit" disabled={pending || !draft.trim()}>
           Send
-        </button>
+        </Button>
       </form>
     </section>
   );

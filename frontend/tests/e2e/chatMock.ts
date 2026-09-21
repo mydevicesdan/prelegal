@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import type { NdaUpdates, PartyUpdate } from "@/lib/chat";
 import { NDA_KEY } from "@/lib/documents";
-import { noParty, noUpdates, specFixtures } from "../fixtures";
+import { noParty, noUpdates } from "../fixtures";
 
 export type Updates = Partial<Omit<NdaUpdates, "party1" | "party2">> & {
   party1?: Partial<PartyUpdate>;
@@ -60,18 +60,6 @@ export async function mockChat(page: Page, ...replies: Reply[]): Promise<ChatReq
     await route.fulfill({ json: toWire(next) });
   });
   return requests;
-}
-
-/** Stands in for GET /api/documents/{key}. Returns the keys requested so far. */
-export async function mockDocuments(page: Page): Promise<string[]> {
-  const requested: string[] = [];
-  await page.route("**/api/documents/*", async (route) => {
-    const key = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop()!);
-    requested.push(key);
-    const spec = specFixtures[key];
-    await route.fulfill(spec ? { json: spec } : { status: 404, json: { detail: "Unknown document." } });
-  });
-  return requested;
 }
 
 /** Types a message in the chat, sends it, and waits for the assistant's reply to appear. */
