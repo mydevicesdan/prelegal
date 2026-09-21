@@ -17,7 +17,7 @@ Requires [Docker](https://www.docker.com/). The app is served at http://localhos
 | Linux   | `scripts/start-linux.sh`     | `scripts/stop-linux.sh`     |
 | Windows | `scripts/start-windows.ps1`  | `scripts/stop-windows.ps1`  |
 
-Sign-in is a placeholder for now: any details let you in. The SQLite database is temporary and is
+Sign in with any details (sign-in is a placeholder for now), then chat with the assistant at `/documents/`. It can draft the Mutual NDA, Cloud Service Agreement, Service Level Agreement, Data Processing Agreement, Design Partner Agreement, Professional Services Agreement, Partnership Agreement, Business Associate Agreement, Software License Agreement, Pilot Agreement and AI Addendum, and for anything else it explains and suggests the closest one. The SQLite database is temporary and is
 recreated from scratch every time the container starts.
 
 ## Configuration
@@ -35,7 +35,7 @@ endpoint is not authenticated yet and has no rate limit, so don't expose the app
 
 ## Project layout
 
-- `backend/`: FastAPI app managed with [uv](https://docs.astral.sh/uv/). Serves `/api/*` (`/api/chat` is the AI assistant) and the static frontend.
+- `backend/`: FastAPI app managed with [uv](https://docs.astral.sh/uv/). Serves `/api/*` (`/api/chat` is the AI assistant, `/api/documents/{key}` describes a document) and the static frontend. It parses the templates in `templates/` at runtime.
   Tests: `cd backend && uv run pytest`.
 - `frontend/`: Next.js app, statically exported and served by the backend.
   Tests: `cd frontend && npm test` (unit) and `npm run test:e2e` (Playwright).

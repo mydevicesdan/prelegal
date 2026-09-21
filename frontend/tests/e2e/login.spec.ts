@@ -8,37 +8,37 @@ async function openLogin(page: Page) {
 }
 
 test.describe("fake login", () => {
-  test("any details sign the user in to the NDA creator", async ({ page }) => {
+  test("any details sign the user in to the document creator", async ({ page }) => {
     await openLogin(page);
     await page.getByLabel("Email").fill("someone@example.com");
     await page.getByLabel("Password").fill("whatever");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page).toHaveURL(/\/nda\/$/);
-    await expect(page.getByRole("heading", { name: "Mutual NDA creator" })).toBeVisible();
+    await expect(page).toHaveURL(/\/documents\/$/);
+    await expect(page.getByRole("heading", { name: "Legal document creator" })).toBeVisible();
     await expect(page.getByText("someone@example.com")).toBeVisible();
   });
 
   test("empty details are also accepted", async ({ page }) => {
     await openLogin(page);
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page).toHaveURL(/\/nda\/$/);
-    await expect(page.getByRole("heading", { name: "Mutual NDA creator" })).toBeVisible();
+    await expect(page).toHaveURL(/\/documents\/$/);
+    await expect(page.getByRole("heading", { name: "Legal document creator" })).toBeVisible();
   });
 
-  test("log out returns to the login screen and locks the NDA page", async ({ page }) => {
+  test("log out returns to the login screen and locks the documents page", async ({ page }) => {
     await openLogin(page);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page).toHaveURL(/\/$/);
 
-    await page.goto("/nda/");
+    await page.goto("/documents/");
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   });
 
-  test("visiting the NDA page without a session redirects to login", async ({ page }) => {
-    await page.goto("/nda/");
+  test("visiting the documents page without a session redirects to login", async ({ page }) => {
+    await page.goto("/documents/");
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole("heading", { name: "Prelegal" })).toBeVisible();
   });

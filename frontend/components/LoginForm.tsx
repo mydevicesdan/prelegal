@@ -16,7 +16,7 @@ export function LoginForm() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     startSession(email.trim());
-    router.push("/nda/");
+    router.push("/documents/");
   };
 
   return (

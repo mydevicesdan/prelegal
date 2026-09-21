@@ -16,10 +16,14 @@ WORKDIR /app
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/app ./app
+# The backend parses the templates at runtime; catalog.json must sit next to the templates directory.
+COPY templates/ ./templates/
+COPY catalog.json ./catalog.json
 COPY --from=frontend /frontend/out ./static
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PRELEGAL_STATIC_DIR=/app/static \
+    PRELEGAL_TEMPLATES_DIR=/app/templates \
     PRELEGAL_DB_PATH=/tmp/prelegal.db
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

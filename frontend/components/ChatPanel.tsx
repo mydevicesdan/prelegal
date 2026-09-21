@@ -1,19 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { MAX_TEXT_CHARS, sendChat, type ChatMessage, type NdaUpdates } from "@/lib/chat";
-import type { NdaFormData } from "@/lib/nda";
+import {
+  MAX_TEXT_CHARS,
+  sendChat,
+  type ChatContext,
+  type ChatMessage,
+  type ChatReply,
+} from "@/lib/chat";
 
 export const GREETING =
-  "Hi! I'll help you draft a Mutual Non-Disclosure Agreement. Who are the two parties, and what is the purpose of the NDA?";
+  "Hi! I can help you draft a legal agreement from Common Paper's standard templates. What do you need? For example an NDA, a cloud service agreement, a professional services agreement or a data processing agreement, or just describe the situation and I'll suggest one.";
 
 interface ChatPanelProps {
   /** The document as it currently stands, sent with each message so the assistant knows what is filled in. */
-  data: NdaFormData;
-  onUpdates: (updates: NdaUpdates) => void;
+  context: ChatContext;
+  onTurn: (reply: ChatReply) => void;
 }
 
-export function ChatPanel({ data, onUpdates }: ChatPanelProps) {
+export function ChatPanel({ context, onTurn }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: GREETING },
   ]);
@@ -31,9 +36,9 @@ export function ChatPanel({ data, onUpdates }: ChatPanelProps) {
     setPending(true);
     setError(null);
     try {
-      const { reply, updates } = await sendChat(history, data);
-      onUpdates(updates);
-      setMessages([...history, { role: "assistant", content: reply }]);
+      const turn = await sendChat(history, context);
+      onTurn(turn);
+      setMessages([...history, { role: "assistant", content: turn.reply }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {

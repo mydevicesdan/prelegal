@@ -1,31 +1,48 @@
 import { expect, type Page } from "@playwright/test";
 import type { NdaUpdates, PartyUpdate } from "@/lib/chat";
-
-const noParty: PartyUpdate = { company: null, name: null, title: null, address: null };
-const noUpdates: NdaUpdates = {
-  purpose: null,
-  effectiveDate: null,
-  termType: null,
-  termYears: null,
-  confidentialityType: null,
-  confidentialityYears: null,
-  governingLaw: null,
-  jurisdiction: null,
-  modifications: null,
-  party1: noParty,
-  party2: noParty,
-};
+import { NDA_KEY } from "@/lib/documents";
+import { noParty, noUpdates, specFixtures } from "../fixtures";
 
 export type Updates = Partial<Omit<NdaUpdates, "party1" | "party2">> & {
   party1?: Partial<PartyUpdate>;
   party2?: Partial<PartyUpdate>;
 };
-type Reply = { reply: string; updates?: Updates } | { status: number; detail: string };
+
+type Turn = {
+  reply: string;
+  documentType?: string;
+  /** Mutual NDA fields. */
+  updates?: Updates;
+  /** Every other document: field values by key, and party details by role. */
+  fieldValues?: Record<string, string>;
+  parties?: Record<string, Partial<PartyUpdate>>;
+};
+type Reply = Turn | { status: number; detail: string };
 
 export type ChatRequest = {
   messages: { role: string; content: string }[];
   fields: NdaUpdates;
+  documentType: string | null;
+  values: { key: string; value: string }[];
+  parties: ({ role: string } & PartyUpdate)[];
 };
+
+function toWire(turn: Turn) {
+  const { party1, party2, ...rest } = turn.updates ?? {};
+  return {
+    reply: turn.reply,
+    documentType: turn.documentType ?? null,
+    updates: turn.updates
+      ? { ...noUpdates, ...rest, party1: { ...noParty, ...party1 }, party2: { ...noParty, ...party2 } }
+      : null,
+    fieldValues: turn.fieldValues
+      ? Object.entries(turn.fieldValues).map(([key, value]) => ({ key, value }))
+      : null,
+    parties: turn.parties
+      ? Object.entries(turn.parties).map(([role, details]) => ({ role, ...noParty, ...details }))
+      : null,
+  };
+}
 
 /**
  * Stands in for the backend's /api/chat (the e2e server only serves the static export).
@@ -40,20 +57,21 @@ export async function mockChat(page: Page, ...replies: Reply[]): Promise<ChatReq
       await route.fulfill({ status: next.status, json: { detail: next.detail } });
       return;
     }
-    const { party1, party2, ...rest } = next.updates ?? {};
-    await route.fulfill({
-      json: {
-        reply: next.reply,
-        updates: {
-          ...noUpdates,
-          ...rest,
-          party1: { ...noParty, ...party1 },
-          party2: { ...noParty, ...party2 },
-        },
-      },
-    });
+    await route.fulfill({ json: toWire(next) });
   });
   return requests;
+}
+
+/** Stands in for GET /api/documents/{key}. Returns the keys requested so far. */
+export async function mockDocuments(page: Page): Promise<string[]> {
+  const requested: string[] = [];
+  await page.route("**/api/documents/*", async (route) => {
+    const key = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop()!);
+    requested.push(key);
+    const spec = specFixtures[key];
+    await route.fulfill(spec ? { json: spec } : { status: 404, json: { detail: "Unknown document." } });
+  });
+  return requested;
 }
 
 /** Types a message in the chat, sends it, and waits for the assistant's reply to appear. */
@@ -63,7 +81,7 @@ export async function say(page: Page, message: string, expectedReply: string) {
   await expect(page.getByRole("log")).toContainText(expectedReply);
 }
 
-/** Every cover page field, as the assistant would fill them in one turn. */
+/** Every Mutual NDA field, as the assistant would fill them in one turn. */
 export const EVERYTHING: Updates = {
   purpose: "Exploring a joint venture.",
   effectiveDate: "2027-01-05",
@@ -73,3 +91,20 @@ export const EVERYTHING: Updates = {
   party1: { company: "Acme Corp", name: "Jane Doe", title: "CEO", address: "jane@acme.com" },
   party2: { company: "Globex", name: "John Smith", title: "CFO", address: "1 Main St\nSpringfield" },
 };
+
+/** Every field and party of the Cloud Service Agreement fixture, in one turn. */
+export const CSA_EVERYTHING: Turn = {
+  reply: "All filled in.",
+  documentType: "csa",
+  fieldValues: {
+    "subscription-period": "12 months from the Order Date",
+    "governing-law": "Delaware",
+    "chosen-courts": "The state courts in New Castle County",
+  },
+  parties: {
+    Provider: { company: "Acme Inc", name: "Jane Doe", title: "CEO", address: "jane@acme.com" },
+    Customer: { company: "Globex LLC", name: "John Smith", title: "CFO", address: "1 Main St\nSpringfield" },
+  },
+};
+
+export { NDA_KEY };

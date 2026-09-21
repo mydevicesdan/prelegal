@@ -1,42 +1,57 @@
-import type { ChatReply, NdaUpdates, PartyUpdate } from "@/lib/chat";
+import type { ChatReply, NdaUpdates } from "@/lib/chat";
+import { NDA_KEY } from "@/lib/documents";
 import { vi } from "vitest";
+import { noUpdates, specFixtures } from "../fixtures";
 
-export const noParty: PartyUpdate = { company: null, name: null, title: null, address: null };
+export { csaSpec, noParty, noUpdates, slaSpec } from "../fixtures";
 
-export const noUpdates: NdaUpdates = {
-  purpose: null,
-  effectiveDate: null,
-  termType: null,
-  termYears: null,
-  confidentialityType: null,
-  confidentialityYears: null,
-  governingLaw: null,
-  jurisdiction: null,
-  modifications: null,
-  party1: noParty,
-  party2: noParty,
-};
-
-export const chatReply = (reply: string, updates: Partial<NdaUpdates> = {}): ChatReply => ({
+/** A turn that changes nothing but the reply, unless `patch` says otherwise. */
+export const chatReply = (reply: string, patch: Partial<ChatReply> = {}): ChatReply => ({
   reply,
-  updates: { ...noUpdates, ...updates },
+  documentType: null,
+  updates: null,
+  fieldValues: null,
+  parties: null,
+  ...patch,
 });
+
+/** A turn in a Mutual NDA conversation: the NDA is the active document and `updates` fill in some fields. */
+export const ndaReply = (reply: string, updates: Partial<NdaUpdates> = {}): ChatReply =>
+  chatReply(reply, { documentType: NDA_KEY, updates: { ...noUpdates, ...updates } });
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/** Replaces fetch with a mock returning the given replies in order (an Error rejects, a number is an HTTP status). */
-export function mockChatApi(...responses: (ChatReply | Error | { status: number; body?: unknown })[]) {
-  const fetchMock = vi.fn();
-  for (const r of responses) {
-    if (r instanceof Error) fetchMock.mockRejectedValueOnce(r);
-    else if ("status" in r) fetchMock.mockResolvedValueOnce(json(r.body ?? {}, r.status));
-    else fetchMock.mockResolvedValueOnce(json(r));
-  }
+type Scripted = ChatReply | Error | { status: number; body?: unknown };
+
+/**
+ * Replaces fetch with a mock of the backend. /api/chat answers with the given replies in order (an Error
+ * rejects, an object with a status is an HTTP error); /api/documents/{key} serves specFixtures.
+ */
+export function mockChatApi(...replies: Scripted[]) {
+  const queue = [...replies];
+  const fetchMock = vi.fn(async (url: string) => {
+    if (String(url).startsWith("/api/documents/")) {
+      const spec = specFixtures[decodeURIComponent(String(url).split("/").pop()!)];
+      return spec ? json(spec) : json({ detail: "Unknown document." }, 404);
+    }
+    const next = queue.shift();
+    if (next === undefined) throw new Error("unexpected /api/chat call");
+    if (next instanceof Error) throw next;
+    if ("status" in next) return json(next.body ?? {}, next.status);
+    return json(next);
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
 
-/** The parsed JSON body of the nth call to the mocked chat API. */
+/** The calls made to /api/chat (as opposed to /api/documents/*). */
+const chatCalls = (fetchMock: ReturnType<typeof vi.fn>) =>
+  fetchMock.mock.calls.filter(([url]) => url === "/api/chat");
+
+/** The parsed JSON body of the nth call to /api/chat. */
 export const requestBody = (fetchMock: ReturnType<typeof vi.fn>, call = 0) =>
-  JSON.parse(fetchMock.mock.calls[call][1].body as string);
+  JSON.parse(chatCalls(fetchMock)[call][1].body as string);
+
+export const documentCalls = (fetchMock: ReturnType<typeof vi.fn>) =>
+  fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith("/api/documents/"));
